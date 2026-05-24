@@ -49,13 +49,17 @@ content = textwrap.dedent("""\
         auto_https off
     }}
     :{caddy_port}
-    reverse_proxy /_matrix/* synapse:8008 {{
-        header_up X-Forwarded-For {{remote_host}}
-        header_up X-Forwarded-Proto https
+    handle /_matrix/* {{
+        reverse_proxy synapse:8008 {{
+            header_up X-Forwarded-For {{remote_host}}
+            header_up X-Forwarded-Proto https
+        }}
     }}
-    reverse_proxy /_synapse/client/* synapse:8008 {{
-        header_up X-Forwarded-For {{remote_host}}
-        header_up X-Forwarded-Proto https
+    handle /_synapse/client/* {{
+        reverse_proxy synapse:8008 {{
+            header_up X-Forwarded-For {{remote_host}}
+            header_up X-Forwarded-Proto https
+        }}
     }}
     handle {{
         respond "Matrix server. Use a Matrix client like Element." 200
