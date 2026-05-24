@@ -22,14 +22,19 @@ mkdir -p \
   "${SCRIPT_DIR}/caddy/data" \
   "${SCRIPT_DIR}/synapse/appservices" \
   "${SCRIPT_DIR}/synapse/media_store" \
-  "${SCRIPT_DIR}/stt-bot/data/db" \
   "${SCRIPT_DIR}/stt-bot/data/models" \
   "${SCRIPT_DIR}/postgres/data" \
   "${SCRIPT_DIR}/bridges/whatsapp/data" \
   "${SCRIPT_DIR}/bridges/telegram/data" \
   "${SCRIPT_DIR}/bridges/signal/data" \
   "${SCRIPT_DIR}/bridges/discord/data" \
-  "${SCRIPT_DIR}/bridges/meta/data"
+  "${SCRIPT_DIR}/bridges/slack/data" \
+  "${SCRIPT_DIR}/bridges/gmessages/data" \
+  "${SCRIPT_DIR}/bridges/twitter/data" \
+  "${SCRIPT_DIR}/bridges/googlechat/data" \
+  "${SCRIPT_DIR}/bridges/linkedin/data" \
+  "${SCRIPT_DIR}/bridges/meta-fb/data" \
+  "${SCRIPT_DIR}/bridges/meta-ig/data"
 ok "Directories created."
 
 ###############################################################################
@@ -108,10 +113,10 @@ script_dir      = env.get("SCRIPT_DIR", ".")
 # Only include files that already exist on disk — allows a two-phase startup
 # where registrations are generated first, then homeserver.yaml is re-rendered.
 import os
-bridges = ["whatsapp", "telegram", "signal", "discord", "meta"]
+bridges = ["whatsapp", "telegram", "signal", "discord", "slack", "gmessages", "twitter", "googlechat", "linkedin", "meta-fb", "meta-ig"]
 appservice_files = []
 for bridge in bridges:
-    key = f"ENABLE_BRIDGE_{bridge.upper()}"
+    key = f"ENABLE_BRIDGE_{bridge.upper().replace('-', '_')}"
     if env.get(key, "false").strip().lower() == "true":
         reg_path = os.path.join(script_dir, "synapse", "appservices", f"{bridge}-registration.yaml")
         if os.path.exists(reg_path):
@@ -157,6 +162,21 @@ cfg = {
     "signing_key_path": "/data/matrix.example.com.signing.key",
     "trusted_key_servers": [{"server_name": "matrix.org"}],
     "suppress_key_server_warning": True,
+    "experimental_features": {"msc2716_enabled": True, "msc4190_enabled": True},
+    "rc_joins": {
+        "local": {"per_second": 100, "burst_count": 500},
+        "remote": {"per_second": 10, "burst_count": 100},
+    },
+    "rc_message": {"per_second": 100, "burst_count": 500},
+    "rc_invites": {
+        "per_room": {"per_second": 100, "burst_count": 500},
+        "per_user": {"per_second": 100, "burst_count": 500},
+    },
+    "rc_login": {
+        "address": {"per_second": 100, "burst_count": 500},
+        "account": {"per_second": 100, "burst_count": 500},
+        "failed_attempts": {"per_second": 100, "burst_count": 500},
+    },
 }
 
 # Remove None values (e.g. federation_domain_whitelist when federation enabled)
@@ -220,10 +240,11 @@ ok "synapse/log.config rendered."
 ###############################################################################
 
 log "Rendering bridge configs..."
-BRIDGES=(whatsapp telegram signal discord meta)
+BRIDGES=(whatsapp telegram signal discord slack gmessages twitter googlechat linkedin meta-fb meta-ig)
 
 for bridge in "${BRIDGES[@]}"; do
-  env_key="ENABLE_BRIDGE_${bridge^^}"
+  # Convert bridge slug to env-var-safe uppercase: meta-fb → META_FB
+  env_key="ENABLE_BRIDGE_$(echo "${bridge}" | tr '[:lower:]-' '[:upper:]_')"
   bridge_enabled="${!env_key:-false}"
 
   if [[ "${bridge_enabled}" != "true" ]]; then
@@ -299,14 +320,78 @@ PY
 fi
 
 ###############################################################################
-# 7. Compute and write COMPOSE_PROFILES
+# 7. Render translate-bot/config.json from template
+###############################################################################
+
+log "Rendering translate-bot/config.json..."
+TRANSLATE_BOT_TMPL="${SCRIPT_DIR}/translate-bot/config.json.tmpl"
+TRANSLATE_BOT_OUT="${SCRIPT_DIR}/translate-bot/config.json"
+
+if [[ "${ENABLE_TRANSLATE_BOT:-false}" != "true" ]]; then
+  log "  translate-bot disabled (ENABLE_TRANSLATE_BOT != true) — skipping."
+elif [[ ! -f "${TRANSLATE_BOT_TMPL}" ]]; then
+  warn "translate-bot/config.json.tmpl not found — skipping."
+else
+  TMPL_PATH="${TRANSLATE_BOT_TMPL}" OUT_PATH="${TRANSLATE_BOT_OUT}" \
+  python3 - <<'PY'
+import os, string
+
+tmpl_path = os.environ["TMPL_PATH"]
+out_path  = os.environ["OUT_PATH"]
+
+with open(tmpl_path, "r") as f:
+    template = string.Template(f.read())
+
+rendered = template.safe_substitute(os.environ)
+
+with open(out_path, "w") as f:
+    f.write(rendered)
+print(f"  Written: {out_path}")
+PY
+  ok "translate-bot/config.json rendered."
+fi
+
+###############################################################################
+# 8. Render cookie-refresher/config.json from template
+###############################################################################
+
+log "Rendering cookie-refresher/config.json..."
+COOKIE_REFRESHER_TMPL="${SCRIPT_DIR}/cookie-refresher/config.json.tmpl"
+COOKIE_REFRESHER_OUT="${SCRIPT_DIR}/cookie-refresher/config.json"
+
+if [[ "${ENABLE_COOKIE_REFRESHER:-false}" != "true" ]]; then
+  log "  cookie-refresher disabled (ENABLE_COOKIE_REFRESHER != true) — skipping."
+elif [[ ! -f "${COOKIE_REFRESHER_TMPL}" ]]; then
+  warn "cookie-refresher/config.json.tmpl not found — skipping."
+else
+  TMPL_PATH="${COOKIE_REFRESHER_TMPL}" OUT_PATH="${COOKIE_REFRESHER_OUT}" \
+  python3 - <<'PY'
+import os, string
+
+tmpl_path = os.environ["TMPL_PATH"]
+out_path  = os.environ["OUT_PATH"]
+
+with open(tmpl_path, "r") as f:
+    template = string.Template(f.read())
+
+rendered = template.safe_substitute(os.environ)
+
+with open(out_path, "w") as f:
+    f.write(rendered)
+print(f"  Written: {out_path}")
+PY
+  ok "cookie-refresher/config.json rendered."
+fi
+
+###############################################################################
+# 9. Compute and write COMPOSE_PROFILES
 ###############################################################################
 
 log "Computing Docker Compose profiles..."
 PROFILES=()
 
 for bridge in "${BRIDGES[@]}"; do
-  env_key="ENABLE_BRIDGE_${bridge^^}"
+  env_key="ENABLE_BRIDGE_$(echo "${bridge}" | tr '[:lower:]-' '[:upper:]_')"
   bridge_enabled="${!env_key:-false}"
   if [[ "${bridge_enabled}" == "true" ]]; then
     PROFILES+=("${bridge}")
@@ -324,6 +409,14 @@ if [[ "${ENABLE_STT_BOT}" == "true" ]]; then
   fi
 fi
 
+if [[ "${ENABLE_TRANSLATE_BOT:-false}" == "true" ]]; then
+  PROFILES+=("translate")
+fi
+
+if [[ "${ENABLE_COOKIE_REFRESHER:-false}" == "true" ]]; then
+  PROFILES+=("cookie-refresher")
+fi
+
 # Join with commas
 COMPOSE_PROFILES_STR=""
 for profile in "${PROFILES[@]+"${PROFILES[@]}"}"; do
@@ -338,7 +431,7 @@ printf '%s\n' "${COMPOSE_PROFILES_STR}" > "${SCRIPT_DIR}/.compose-profiles"
 ok "Compose profiles written: ${COMPOSE_PROFILES_STR:-<none>}"
 
 ###############################################################################
-# 8. Touch stt-bot/element-keys.txt if missing
+# 10. Touch stt-bot/element-keys.txt if missing
 ###############################################################################
 
 if [[ ! -f "${SCRIPT_DIR}/stt-bot/element-keys.txt" ]]; then

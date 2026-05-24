@@ -108,18 +108,102 @@ services:
       - ./bridges/discord:/data
     restart: unless-stopped
 
-  mautrix-meta:
-    image: dock.mau.dev/mautrix/meta:latest
+  mautrix-slack:
+    image: dock.mau.dev/mautrix/slack:latest
     <<: *watchtower-managed
     profiles:
-      - meta
+      - slack
     depends_on:
       postgres:
         condition: service_healthy
       synapse:
         condition: service_started
     volumes:
-      - ./bridges/meta:/data
+      - ./bridges/slack:/data
+    restart: unless-stopped
+
+  mautrix-gmessages:
+    image: dock.mau.dev/mautrix/gmessages:latest
+    <<: *watchtower-managed
+    profiles:
+      - gmessages
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_started
+    volumes:
+      - ./bridges/gmessages:/data
+    restart: unless-stopped
+
+  mautrix-twitter:
+    image: dock.mau.dev/mautrix/twitter:latest
+    <<: *watchtower-managed
+    profiles:
+      - twitter
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_started
+    volumes:
+      - ./bridges/twitter:/data
+    restart: unless-stopped
+
+  mautrix-googlechat:
+    image: dock.mau.dev/mautrix/googlechat:latest
+    <<: *watchtower-managed
+    profiles:
+      - googlechat
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_started
+    volumes:
+      - ./bridges/googlechat:/data
+    restart: unless-stopped
+
+  mautrix-linkedin:
+    image: ghcr.io/beeper/linkedin:latest
+    <<: *watchtower-managed
+    profiles:
+      - linkedin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_started
+    volumes:
+      - ./bridges/linkedin:/data
+    restart: unless-stopped
+
+  mautrix-meta-fb:
+    image: dock.mau.dev/mautrix/meta:latest
+    <<: *watchtower-managed
+    profiles:
+      - meta-fb
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_started
+    volumes:
+      - ./bridges/meta-fb:/data
+    restart: unless-stopped
+
+  mautrix-meta-ig:
+    image: dock.mau.dev/mautrix/meta:latest
+    <<: *watchtower-managed
+    profiles:
+      - meta-ig
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_started
+    volumes:
+      - ./bridges/meta-ig:/data
     restart: unless-stopped
 
   # NOTE: stt-cpu and stt-gpu share volume paths (./stt-bot/data/db, etc.).
@@ -169,6 +253,63 @@ services:
               count: all
               capabilities:
                 - gpu
+    restart: unless-stopped
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    <<: *watchtower-managed
+    profiles:
+      - translate
+    environment:
+      LT_DISABLE_WEB_UI: "false"
+      LT_LOAD_ONLY: "${LT_LANGUAGES:-en,fr,es,de,pt,it,ar,zh,ja}"
+      LT_UPDATE_MODELS: "false"
+    volumes:
+      - ./libretranslate/data:/home/libretranslate/.local
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/languages')\" 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+    restart: unless-stopped
+
+  matrix-translate-bot:
+    build:
+      context: ./translate-bot
+      dockerfile: Dockerfile
+    image: matrix-translate-bot:local
+    profiles:
+      - translate
+    depends_on:
+      synapse:
+        condition: service_started
+      libretranslate:
+        condition: service_healthy
+    volumes:
+      - ./translate-bot/config.json:/app/config.json:ro
+      - ./translate-bot/data/store:/app/store
+      - ./translate-bot/data/models:/app/models
+    environment:
+      TZ: ${TZ}
+    restart: unless-stopped
+
+  cookie-refresher:
+    build:
+      context: ./cookie-refresher
+      dockerfile: Dockerfile
+    image: matrix-cookie-refresher:local
+    profiles:
+      - cookie-refresher
+    depends_on:
+      synapse:
+        condition: service_started
+    volumes:
+      - ./cookie-refresher/config.json:/app/config.json:ro
+      - ./cookie-refresher/data:/app/data
+    environment:
+      TZ: ${TZ}
+      COOKIE_REFRESHER_KEY: ${COOKIE_REFRESHER_KEY:-}
     restart: unless-stopped
 
   watchtower:

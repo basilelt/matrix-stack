@@ -112,55 +112,102 @@ https://download.docker.com/linux/debian trixie stable" \
     done
     ok "postgres is healthy"
 
-    for b in whatsapp telegram signal discord meta; do
+    for b in whatsapp telegram signal discord slack gmessages twitter googlechat linkedin meta-fb meta-ig; do
+      # Strip hyphens for valid postgres DB name (meta-fb → metafb)
+      db_slug="${b//-/}"
       docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-        -c "CREATE DATABASE ${POSTGRES_DB}_${b};" 2>/dev/null || true
+        -c "CREATE DATABASE ${POSTGRES_DB}_${db_slug};" 2>/dev/null || true
     done
 
     # ── 9. Generate bridge registrations BEFORE Synapse starts ───────────────
     # homeserver.yaml references appservices/*.yaml, so they must exist first.
     # mautrix v2 (megabridge) bridges: auto-generate default config, patch fields, then register.
     mkdir -p "$SCRIPT_DIR/synapse/appservices"
-    for b in whatsapp telegram signal discord meta; do
-      flag_var="ENABLE_BRIDGE_${b^^}"
+    for b in whatsapp telegram signal discord slack gmessages twitter googlechat linkedin meta-fb meta-ig; do
+      # Convert slug to env-var key: meta-fb → ENABLE_BRIDGE_META_FB
+      flag_var="ENABLE_BRIDGE_$(echo "${b}" | tr '[:lower:]-' '[:upper:]_')"
       [[ "${!flag_var:-false}" == "true" ]] || continue
 
+      db_slug="${b//-/}"   # strip hyphens for postgres DB name
+      svc="mautrix-${b}"  # docker compose service name
+
       if [[ ! -f "$SCRIPT_DIR/bridges/${b}/registration.yaml" ]]; then
-        log "Bootstrapping mautrix-${b} config (v2 megabridge format)..."
+        log "Bootstrapping ${svc} config..."
         mkdir -p "$SCRIPT_DIR/bridges/${b}"
         bridge_cfg="$SCRIPT_DIR/bridges/${b}/config.yaml"
 
-        # Step 1: auto-generate default config (bridge exits after writing config.yaml)
-        # Force-delete any stale config (e.g. rendered from old v0.x template) so
-        # the container always produces a fresh megabridge-v2 format config.
-        rm -f "$bridge_cfg"
-        docker compose run --rm "mautrix-${b}" 2>&1 | grep -v "^$" || true
+        case "$b" in
+          linkedin|googlechat)
+            # Python bridges: rely on template rendered by render-configs.sh
+            if [[ ! -f "$bridge_cfg" ]]; then
+              warn "No config for ${b} — run render-configs.sh first, then re-run setup.sh"
+              continue
+            fi
+            ;;
+          *)
+            # Go megabridge: auto-generate default config, then patch
+            rm -f "$bridge_cfg"
+            docker compose run --rm "$svc" 2>&1 | grep -v "^$" || true
 
-        if [[ ! -f "$bridge_cfg" ]]; then
-          warn "Config auto-generation failed for ${b} — skipping"
-          continue
-        fi
+            if [[ ! -f "$bridge_cfg" ]]; then
+              warn "Config auto-generation failed for ${b} — skipping"
+              continue
+            fi
 
-        # Step 2: patch key fields using sed (unique patterns in generated v2 config)
-        sed -i \
-          -e "s|address: http://example.localhost:8008|address: http://synapse:8008|" \
-          -e "s|    domain: example.com|    domain: ${MATRIX_DOMAIN}|" \
-          -e "s|uri: postgres://user:password@host/database?sslmode=disable|uri: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_${b}?sslmode=disable|" \
-          -e "s|    hostname: 127.0.0.1|    hostname: 0.0.0.0|" \
-          -e "s|address: http://localhost:\([0-9]*\)|address: http://mautrix-${b}:\1|" \
-          -e "s|\"example.com\": user|\"${MATRIX_DOMAIN}\": user|" \
-          -e "s|\"@admin:example.com\": admin|\"@${SYNAPSE_ADMIN_USER}:${MATRIX_DOMAIN}\": admin|" \
-          -e "s|^    allow: false$|    allow: true|" \
-          -e "s|^    default: false$|    default: true|" \
-          "$bridge_cfg"
+            # Generic patches
+            sed -i \
+              -e "s|address: http://example.localhost:8008|address: http://synapse:8008|" \
+              -e "s|    domain: example.com|    domain: ${MATRIX_DOMAIN}|" \
+              -e "s|uri: postgres://user:password@host/database?sslmode=disable|uri: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_${db_slug}?sslmode=disable|" \
+              -e "s|    hostname: 127.0.0.1|    hostname: 0.0.0.0|" \
+              -e "s|address: http://localhost:\([0-9]*\)|address: http://${svc}:\1|" \
+              -e "s|\"example.com\": user|\"${MATRIX_DOMAIN}\": user|" \
+              -e "s|\"@admin:example.com\": admin|\"@${SYNAPSE_ADMIN_USER}:${MATRIX_DOMAIN}\": admin|" \
+              -e "s|^    allow: false$|    allow: true|" \
+              -e "s|^    default: false$|    default: true|" \
+              "$bridge_cfg"
 
-        log "Config patched for ${b}"
+            # Bridge-specific patches
+            case "$b" in
+              meta-fb)
+                sed -i \
+                  -e "s|^    id: meta$|    id: meta-fb|" \
+                  -e "s|bot_username: metabot|bot_username: messengerbot|" \
+                  "$bridge_cfg"
+                ;;
+              meta-ig)
+                sed -i \
+                  -e "s|^    id: meta$|    id: meta-ig|" \
+                  -e "s|bot_username: metabot|bot_username: instagrambot|" \
+                  -e "s|mode: messenger|mode: instagram|" \
+                  "$bridge_cfg"
+                ;;
+            esac
 
-        # Step 3: generate registration
-        log "Generating registration for mautrix-${b}..."
-        docker compose run --rm --entrypoint "/usr/bin/mautrix-${b}" "mautrix-${b}" \
-          -g -c /data/config.yaml -r /data/registration.yaml 2>&1 \
-          || warn "Registration gen failed for ${b}"
+            log "Config patched for ${b}"
+            ;;
+        esac
+
+        # Generate registration
+        log "Generating registration for ${svc}..."
+        case "$b" in
+          meta-fb|meta-ig)
+            docker compose run --rm --entrypoint "/usr/bin/mautrix-meta" "$svc" \
+              -g -c /data/config.yaml -r /data/registration.yaml 2>&1 \
+              || warn "Registration gen failed for ${b}"
+            ;;
+          linkedin|googlechat)
+            # Python bridges: use container's default entrypoint
+            docker compose run --rm "$svc" \
+              -g -c /data/config.yaml -r /data/registration.yaml 2>&1 \
+              || warn "Registration gen failed for ${b}"
+            ;;
+          *)
+            docker compose run --rm --entrypoint "/usr/bin/mautrix-${b}" "$svc" \
+              -g -c /data/config.yaml -r /data/registration.yaml 2>&1 \
+              || warn "Registration gen failed for ${b}"
+            ;;
+        esac
       fi
 
       if [[ -f "$SCRIPT_DIR/bridges/${b}/registration.yaml" ]]; then
@@ -203,7 +250,25 @@ https://download.docker.com/linux/debian trixie stable" \
         -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
     fi
 
-    # ── 14. Build GPU image if needed ────────────────────────────────────────
+    # ── 14. Register translate-bot user + build image (if enabled) ───────────
+    if [[ "${ENABLE_TRANSLATE_BOT:-false}" == "true" ]]; then
+      docker compose exec -T synapse register_new_matrix_user \
+        -u "$TRANSLATE_BOT_USER_LOCALPART" -p "$TRANSLATE_BOT_PASSWORD" --no-admin \
+        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      log "Building translate-bot image (this may take a while)..."
+      docker compose build matrix-translate-bot
+    fi
+
+    # ── 15a. Register cookie-refresher user + build image (if enabled) ──────────
+    if [[ "${ENABLE_COOKIE_REFRESHER:-false}" == "true" ]]; then
+      docker compose exec -T synapse register_new_matrix_user \
+        -u "cookie-refresher" -p "${COOKIE_REFRESHER_PASSWORD}" --no-admin \
+        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      log "Building cookie-refresher image (Playwright, may take a while)..."
+      docker compose build cookie-refresher
+    fi
+
+    # ── 15. Build GPU image if needed ────────────────────────────────────────
     if [[ "$PROFILES" == *"stt-gpu"* ]]; then
       log "Building GPU image (this may take a while)..."
       docker compose build matrix-stt-bot-gpu

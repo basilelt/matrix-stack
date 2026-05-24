@@ -1,6 +1,9 @@
-# mautrix-discord configuration
+# mautrix-twitter configuration (Go megabridge)
 # Python string.Template file — use render-configs.sh to render.
 # Variables: MATRIX_DOMAIN, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, BRIDGE_ADMIN_USER
+# Login: DM @twitterbot, send "login-cookie auth_token=<cookie> ct0=<cookie>"
+# Cookies from x.com: DevTools → Application → Cookies
+# Note: X.com cookies rotate frequently — use cookie-refresher sidecar
 
 homeserver:
   address: http://synapse:8008
@@ -11,23 +14,23 @@ homeserver:
   async_media: false
 
 appservice:
-  address: http://mautrix-discord:29334
+  address: http://mautrix-twitter:29337
   hostname: 0.0.0.0
-  port: 29334
+  port: 29337
   max_body_size: 1
 
   database:
     type: postgres
-    uri: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_discord?sslmode=disable"
+    uri: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_twitter?sslmode=disable"
     max_open_conns: 20
     max_idle_conns: 2
     max_conn_idle_time: null
     max_conn_lifetime: null
 
-  id: discord
-  bot_username: discordbot
-  bot_displayname: Discord bridge bot
-  bot_avatar: "mxc://maunium.net/nIdEykemnwdisvHMoAFAfxrE"
+  id: twitter
+  bot_username: twitterbot
+  bot_displayname: Twitter/X bridge bot
+  bot_avatar: "mxc://maunium.net/HVHcnusJkQcpVcsJWR dnuMol"
 
   ephemeral_events: true
   async_transactions: false
@@ -36,9 +39,8 @@ appservice:
   hs_token: ""
 
 bridge:
-  # mautrix-discord (Go) uses Go text/template; {{.ID}} is the Discord snowflake user ID
-  username_template: "discord_{{.}}"
-  displayname_template: "{{.Username}} (Discord)"
+  username_template: "twitter_{{.}}"
+  displayname_template: "{{.}} (Twitter)"
   personal_filtering_spaces: true
   delivery_receipts: false
   send_presence_on_typing: false
@@ -47,12 +49,12 @@ bridge:
   double_puppet_server_map: {}
   double_puppet_allow_discovery: false
   login_shared_secret_map: {}
-  command_prefix: "!discord"
-  restricted_rooms: false
+  command_prefix: "!tw"
 
   permissions:
     "${MATRIX_DOMAIN}": user
     "${BRIDGE_ADMIN_USER}": admin
+    "@translate-bot:${MATRIX_DOMAIN}": admin
 
 logging:
   min_level: info
