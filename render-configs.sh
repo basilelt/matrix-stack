@@ -49,6 +49,15 @@ content = textwrap.dedent("""\
         auto_https off
     }}
     :{caddy_port}
+    handle /.well-known/matrix/server {{
+        header Content-Type application/json
+        respond `{{"m.server":"{matrix_domain}:443"}}` 200
+    }}
+    handle /.well-known/matrix/client {{
+        header Content-Type application/json
+        header Access-Control-Allow-Origin *
+        respond `{{"m.homeserver":{{"base_url":"https://{matrix_domain}"}},"m.identity_server":{{"base_url":"https://vector.im"}}}}` 200
+    }}
     handle /_matrix/* {{
         reverse_proxy synapse:8008 {{
             header_up X-Forwarded-For {{remote_host}}
@@ -64,7 +73,7 @@ content = textwrap.dedent("""\
     handle {{
         respond "Matrix server. Use a Matrix client like Element." 200
     }}
-""").format(caddy_port=caddy_port)
+""").format(caddy_port=caddy_port, matrix_domain=os.environ.get("PUBLIC_DOMAIN", os.environ.get("MATRIX_DOMAIN", "example.com")))
 
 out_path = os.path.join(os.environ.get("SCRIPT_DIR", "."), "caddy", "Caddyfile")
 with open(out_path, "w") as f:
