@@ -172,7 +172,7 @@ services:
     restart: unless-stopped
 
   watchtower:
-    image: containrrr/watchtower:latest
+    image: containrrr/watchtower:1.7.1
     <<: *watchtower-managed
     environment:
       TZ: ${TZ}
@@ -181,6 +181,7 @@ services:
       WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_INTERVAL}
       WATCHTOWER_INCLUDE_RESTARTING: "true"
       WATCHTOWER_NOTIFICATION_URL: ${WATCHTOWER_NOTIFICATION_URL:-}
+      DOCKER_API_VERSION: "1.47"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped

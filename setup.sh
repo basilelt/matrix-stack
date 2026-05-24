@@ -97,22 +97,83 @@ https://download.docker.com/linux/debian trixie stable" \
     export COMPOSE_PROFILES="$PROFILES"
     log "Active profiles: $PROFILES"
 
-    # ── 8. First-run: postgres + synapse ─────────────────────────────────────
+    # ── 8. Start postgres; create per-bridge DBs ─────────────────────────────
     cd "$SCRIPT_DIR"
     docker compose up -d postgres
 
     log "Waiting for postgres to be healthy..."
     WAITED=0
     until docker compose ps postgres 2>/dev/null | grep -q "healthy"; do
-      if [[ "$WAITED" -ge 60 ]]; then
-        die "postgres did not become healthy after 60 seconds — check logs: docker compose logs postgres"
+      if [[ "$WAITED" -ge 120 ]]; then
+        die "postgres did not become healthy after 120 seconds — check logs: docker compose logs postgres"
       fi
-      sleep 1
-      (( WAITED++ ))
+      sleep 2
+      (( WAITED += 2 ))
     done
     ok "postgres is healthy"
 
-    # Generate Synapse signing key (idempotent)
+    for b in whatsapp telegram signal discord meta; do
+      docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -c "CREATE DATABASE ${POSTGRES_DB}_${b};" 2>/dev/null || true
+    done
+
+    # ── 9. Generate bridge registrations BEFORE Synapse starts ───────────────
+    # homeserver.yaml references appservices/*.yaml, so they must exist first.
+    # mautrix v2 (megabridge) bridges: auto-generate default config, patch fields, then register.
+    mkdir -p "$SCRIPT_DIR/synapse/appservices"
+    for b in whatsapp telegram signal discord meta; do
+      flag_var="ENABLE_BRIDGE_${b^^}"
+      [[ "${!flag_var:-false}" == "true" ]] || continue
+
+      if [[ ! -f "$SCRIPT_DIR/bridges/${b}/registration.yaml" ]]; then
+        log "Bootstrapping mautrix-${b} config (v2 megabridge format)..."
+        mkdir -p "$SCRIPT_DIR/bridges/${b}"
+        bridge_cfg="$SCRIPT_DIR/bridges/${b}/config.yaml"
+
+        # Step 1: auto-generate default config (bridge exits after writing config.yaml)
+        # Force-delete any stale config (e.g. rendered from old v0.x template) so
+        # the container always produces a fresh megabridge-v2 format config.
+        rm -f "$bridge_cfg"
+        docker compose run --rm "mautrix-${b}" 2>&1 | grep -v "^$" || true
+
+        if [[ ! -f "$bridge_cfg" ]]; then
+          warn "Config auto-generation failed for ${b} — skipping"
+          continue
+        fi
+
+        # Step 2: patch key fields using sed (unique patterns in generated v2 config)
+        sed -i \
+          -e "s|address: http://example.localhost:8008|address: http://synapse:8008|" \
+          -e "s|    domain: example.com|    domain: ${MATRIX_DOMAIN}|" \
+          -e "s|uri: postgres://user:password@host/database?sslmode=disable|uri: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_${b}?sslmode=disable|" \
+          -e "s|    hostname: 127.0.0.1|    hostname: 0.0.0.0|" \
+          -e "s|address: http://localhost:\([0-9]*\)|address: http://mautrix-${b}:\1|" \
+          -e "s|\"example.com\": user|\"${MATRIX_DOMAIN}\": user|" \
+          -e "s|\"@admin:example.com\": admin|\"@${SYNAPSE_ADMIN_USER}:${MATRIX_DOMAIN}\": admin|" \
+          "$bridge_cfg"
+
+        log "Config patched for ${b}"
+
+        # Step 3: generate registration
+        log "Generating registration for mautrix-${b}..."
+        docker compose run --rm --entrypoint "/usr/bin/mautrix-${b}" "mautrix-${b}" \
+          -g -c /data/config.yaml -r /data/registration.yaml 2>&1 \
+          || warn "Registration gen failed for ${b}"
+      fi
+
+      if [[ -f "$SCRIPT_DIR/bridges/${b}/registration.yaml" ]]; then
+        cp -f "$SCRIPT_DIR/bridges/${b}/registration.yaml" \
+              "$SCRIPT_DIR/synapse/appservices/${b}-registration.yaml"
+      else
+        warn "No registration.yaml for ${b} — skipping appservice registration"
+      fi
+    done
+
+    # ── 10. Re-render configs with appservice paths now that registrations exist
+    "$SCRIPT_DIR/render-configs.sh"
+
+    # ── 11. Start Synapse + Caddy ─────────────────────────────────────────────
+    # Generate signing key (idempotent, must run before synapse service starts)
     docker compose run --rm synapse generate || true
 
     docker compose up -d synapse caddy
@@ -120,55 +181,25 @@ https://download.docker.com/linux/debian trixie stable" \
     log "Waiting for Synapse to be ready..."
     WAITED=0
     until curl -sf http://localhost:8008/_matrix/client/versions >/dev/null 2>&1; do
-      if [[ "$WAITED" -ge 60 ]]; then
-        die "Synapse did not become ready after 60 seconds — check logs: docker compose logs synapse"
+      if [[ "$WAITED" -ge 90 ]]; then
+        die "Synapse did not become ready after 90 seconds — check logs: docker compose logs synapse"
       fi
-      sleep 1
-      (( WAITED++ ))
+      sleep 2
+      (( WAITED += 2 ))
     done
     ok "Synapse is ready"
 
-    # ── 9. Per-bridge Postgres DBs (idempotent) ──────────────────────────────
-    for b in whatsapp telegram signal discord meta; do
-      docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-        -c "CREATE DATABASE ${POSTGRES_DB}_${b};" 2>/dev/null || true
-    done
-
-    # ── 10. Register admin user (idempotent) ─────────────────────────────────
+    # ── 12. Register admin user (idempotent) ─────────────────────────────────
     docker compose exec -T synapse register_new_matrix_user \
       -u "$SYNAPSE_ADMIN_USER" -p "$SYNAPSE_ADMIN_PASSWORD" -a \
       -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
 
-    # ── 11. Register STT bot user (if enabled) ───────────────────────────────
+    # ── 13. Register STT bot user (if enabled) ───────────────────────────────
     if [[ "${ENABLE_STT_BOT:-false}" == "true" ]]; then
       docker compose exec -T synapse register_new_matrix_user \
         -u "$STT_BOT_USER_LOCALPART" -p "$STT_BOT_PASSWORD" --no-admin \
         -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
     fi
-
-    # ── 12. Per-bridge: generate registration.yaml ───────────────────────────
-    mkdir -p "$SCRIPT_DIR/synapse/appservices"
-    for b in whatsapp telegram signal discord meta; do
-      flag_var="ENABLE_BRIDGE_${b^^}"
-      if [[ "${!flag_var:-false}" == "true" ]]; then
-        if [[ ! -f "$SCRIPT_DIR/bridges/${b}/registration.yaml" ]]; then
-          log "Generating registration for mautrix-${b}..."
-          docker compose run --rm "mautrix-${b}" \
-            -g -c /data/config.yaml -r /data/registration.yaml \
-            || warn "Registration gen failed for ${b} — bridge may not work"
-        fi
-        if [[ -f "$SCRIPT_DIR/bridges/${b}/registration.yaml" ]]; then
-          cp -f "$SCRIPT_DIR/bridges/${b}/registration.yaml" \
-                "$SCRIPT_DIR/synapse/appservices/${b}-registration.yaml"
-        else
-          warn "No registration.yaml for ${b} — skipping appservice registration"
-        fi
-      fi
-    done
-
-    # ── 13. Restart Synapse to load appservices ──────────────────────────────
-    docker compose restart synapse
-    sleep 5
 
     # ── 14. Build GPU image if needed ────────────────────────────────────────
     if [[ "$PROFILES" == *"stt-gpu"* ]]; then
