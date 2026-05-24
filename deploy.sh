@@ -60,6 +60,9 @@ do_create_lxc() {
 # ---------------------------------------------------------------------------
 
 do_deploy() {
+  echo "Installing rsync on LXC..."
+  mx "apt-get install -y -qq rsync"
+
   echo "Syncing files to LXC..."
   rsync -av --exclude '.git' --exclude '.DS_Store' \
     -e "ssh -i '$SSH_KEY' -o StrictHostKeyChecking=no" \
