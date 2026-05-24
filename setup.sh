@@ -150,6 +150,8 @@ https://download.docker.com/linux/debian trixie stable" \
           -e "s|address: http://localhost:\([0-9]*\)|address: http://mautrix-${b}:\1|" \
           -e "s|\"example.com\": user|\"${MATRIX_DOMAIN}\": user|" \
           -e "s|\"@admin:example.com\": admin|\"@${SYNAPSE_ADMIN_USER}:${MATRIX_DOMAIN}\": admin|" \
+          -e "s|^    allow: false$|    allow: true|" \
+          -e "s|^    default: false$|    default: true|" \
           "$bridge_cfg"
 
         log "Config patched for ${b}"
