@@ -155,17 +155,22 @@ https://download.docker.com/linux/debian trixie stable" \
             fi
 
             # Generic patches
+            # Note: DB URI sed must strip any trailing quote that auto-gen leaves: sslmode=disable"
             sed -i \
               -e "s|address: http://example.localhost:8008|address: http://synapse:8008|" \
               -e "s|    domain: example.com|    domain: ${MATRIX_DOMAIN}|" \
-              -e "s|uri: postgres://user:password@host/database?sslmode=disable|uri: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_${db_slug}?sslmode=disable|" \
+              -e "s|uri: .*sslmode=disable.*|uri: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_${db_slug}?sslmode=disable|" \
               -e "s|    hostname: 127.0.0.1|    hostname: 0.0.0.0|" \
               -e "s|address: http://localhost:\([0-9]*\)|address: http://${svc}:\1|" \
               -e "s|\"example.com\": user|\"${MATRIX_DOMAIN}\": user|" \
               -e "s|\"@admin:example.com\": admin|\"@${SYNAPSE_ADMIN_USER}:${MATRIX_DOMAIN}\": admin|" \
+              -e "s|\"\\*\": relaybot|\"*\": relay|" \
+              -e "s|\": full\"|\": user\"|" \
               -e "s|^    allow: false$|    allow: true|" \
               -e "s|^    default: false$|    default: true|" \
               "$bridge_cfg"
+            # Fix username template from Python-era format to mautrix-go {{.}} style
+            sed -i -E "s|username_template: ([a-z_]+)_\{[a-z_]+\}|username_template: \"\1_{{.}}\"|" "$bridge_cfg"
 
             # Bridge-specific patches
             case "$b" in
