@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
 PROXMOX="root@YOUR_PROXMOX_IP"
-MATRIX_LXC="root@YOUR_PROXMOX_IP0"
+MATRIX_LXC="root@YOUR_LXC_IP"
 MATRIX_DIR="/opt/matrix-stack"
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ do_create_lxc() {
   while ! ssh -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=3 \
               -o StrictHostKeyChecking=no "$MATRIX_LXC" true 2>/dev/null; do
     if [[ "$attempts" -ge 60 ]]; then
-      echo "ERROR: LXC not reachable after 120s. Check YOUR_PROXMOX_IP0."
+      echo "ERROR: LXC not reachable after 120s. Check YOUR_LXC_IP."
       exit 1
     fi
     sleep 2
@@ -80,7 +80,7 @@ do_deploy() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "PAUSED: Edit the .env file on the LXC:"
     echo ""
-    echo "  ssh root@YOUR_PROXMOX_IP0"
+    echo "  ssh root@YOUR_LXC_IP"
     echo "  nano /opt/matrix-stack/.env"
     echo ""
     echo "Set POSTGRES_PASSWORD, SYNAPSE_REGISTRATION_SHARED_SECRET,"

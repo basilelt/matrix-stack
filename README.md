@@ -23,28 +23,28 @@ Self-hosted Matrix homeserver + bridges + Whisper STT on a single Debian 13 LXC,
 ## Architecture
 
 ```
-Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_PROXMOX_IP0:8080 → Caddy → Synapse:8008
+Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_LXC_IP:8080 → Caddy → Synapse:8008
 ```
 
 - No ports exposed to internet — cloudflared tunnel only
-- Matrix LXC: `YOUR_PROXMOX_IP0` (key-only SSH via `~/.ssh/id_rsa`)
+- Matrix LXC: `YOUR_LXC_IP` (key-only SSH via `~/.ssh/id_rsa`)
 - Domain: `matrix.example.com`
 
 ## Operational cheatsheet
 
 | Action | Command |
 |--------|---------|
-| Tail all logs | `ssh root@YOUR_PROXMOX_IP0 "cd /opt/matrix-stack && docker compose logs -f"` |
-| Tail one service | `ssh root@YOUR_PROXMOX_IP0 "cd /opt/matrix-stack && docker compose logs -f synapse"` |
-| Restart service | `ssh root@YOUR_PROXMOX_IP0 "cd /opt/matrix-stack && docker compose restart synapse"` |
-| Apply .env changes | `ssh root@YOUR_PROXMOX_IP0` then: `cd /opt/matrix-stack && ./setup.sh` |
-| Force container updates | `ssh root@YOUR_PROXMOX_IP0 "docker exec watchtower /watchtower --run-once"` |
-| Force OS updates | `ssh root@YOUR_PROXMOX_IP0 "systemctl start auto-update.service"` |
-| Add SSH pubkey | `ssh root@YOUR_PROXMOX_IP0 "echo 'ssh-ed25519 AAAA...' >> /root/.ssh/authorized_keys"` |
-| Backup | `ssh root@YOUR_PROXMOX_IP0 "cd /opt/matrix-stack && tar czf ~/backup.tgz .env synapse bridges stt-bot postgres/data"` |
-| Stop stack | `ssh root@YOUR_PROXMOX_IP0 "cd /opt/matrix-stack && docker compose down"` |
-| Rebuild GPU image | `ssh root@YOUR_PROXMOX_IP0 "cd /opt/matrix-stack && ./setup.sh rebuild-gpu"` |
-| Register a new user | `ssh root@YOUR_PROXMOX_IP0 "cd /opt/matrix-stack && ./setup.sh register-user"` |
+| Tail all logs | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose logs -f"` |
+| Tail one service | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose logs -f synapse"` |
+| Restart service | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose restart synapse"` |
+| Apply .env changes | `ssh root@YOUR_LXC_IP` then: `cd /opt/matrix-stack && ./setup.sh` |
+| Force container updates | `ssh root@YOUR_LXC_IP "docker exec watchtower /watchtower --run-once"` |
+| Force OS updates | `ssh root@YOUR_LXC_IP "systemctl start auto-update.service"` |
+| Add SSH pubkey | `ssh root@YOUR_LXC_IP "echo 'ssh-ed25519 AAAA...' >> /root/.ssh/authorized_keys"` |
+| Backup | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && tar czf ~/backup.tgz .env synapse bridges stt-bot postgres/data"` |
+| Stop stack | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose down"` |
+| Rebuild GPU image | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && ./setup.sh rebuild-gpu"` |
+| Register a new user | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && ./setup.sh register-user"` |
 
 ## Bring each bridge online (after deploy)
 
@@ -71,5 +71,5 @@ After bridges are linked and portal rooms appear:
 - [ ] `curl -s https://matrix.example.com/_matrix/client/versions | python3 -m json.tool` → JSON with `versions`
 - [ ] Element login as `@admin:matrix.example.com` works
 - [ ] Each bridge bot responds to `help` in DM
-- [ ] `ssh root@YOUR_PROXMOX_IP0 "systemctl list-timers | grep auto-update"`
-- [ ] `ssh root@YOUR_PROXMOX_IP0 "docker logs watchtower"`
+- [ ] `ssh root@YOUR_LXC_IP "systemctl list-timers | grep auto-update"`
+- [ ] `ssh root@YOUR_LXC_IP "docker logs watchtower"`

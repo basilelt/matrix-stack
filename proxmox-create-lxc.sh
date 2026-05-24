@@ -98,7 +98,7 @@ if [[ "$CONTAINER_EXISTS" -eq 0 ]]; then
         --cpulimit 4 \
         --cores 4 \
         --rootfs local-lvm:40 \
-        --net0 name=eth0,bridge=vmbr0,ip=YOUR_PROXMOX_IP0/24,gw=YOUR_PROXMOX_IP \
+        --net0 name=eth0,bridge=vmbr0,ip=YOUR_LXC_IP/24,gw=YOUR_GATEWAY_IP \
         --nameserver 1.1.1.1 \
         --searchdomain local \
         --unprivileged 1 \
@@ -211,4 +211,4 @@ pct exec "$VMID" -- bash -c '
 # ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
-log "LXC $VMID ready. SSH: ssh root@YOUR_PROXMOX_IP0 (key-only)"
+log "LXC $VMID ready. SSH: ssh root@YOUR_LXC_IP (key-only)"

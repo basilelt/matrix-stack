@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # cloudflared-add-route.sh
-# Adds matrix.example.com → http://YOUR_PROXMOX_IP0:8080 to the cloudflared tunnel config
+# Adds matrix.example.com → http://YOUR_LXC_IP:8080 to the cloudflared tunnel config
 # running inside the cloudflared LXC on Proxmox, then restarts the service.
 #
 # Usage:
@@ -19,7 +19,7 @@ set -euo pipefail
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
 PROXMOX="root@YOUR_PROXMOX_IP"
 MATRIX_HOST="matrix.example.com"
-MATRIX_BACKEND="http://YOUR_PROXMOX_IP0:8080"
+MATRIX_BACKEND="http://YOUR_LXC_IP:8080"
 
 SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=no -o BatchMode=yes)
 
