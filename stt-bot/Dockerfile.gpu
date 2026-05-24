@@ -1,0 +1,57 @@
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip git ffmpeg libolm-dev \
+    build-essential pkg-config ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Upgrade pip first — Ubuntu 22.04 ships pip 22.0 which lacks --break-system-packages
+RUN python3 -m pip install --upgrade pip
+
+RUN git clone --depth 1 https://github.com/hibobmaster/matrix-stt-bot.git . \
+    && python3 -m pip install -r requirements.txt \
+    && python3 -m pip install \
+        "ctranslate2>=4.4,<5" "faster-whisper" \
+        "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
+
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH:-}
+
+# Patch main.py to use CUDA for faster-whisper inference.
+# Use Python for reliable detection and to avoid sed exit-0 on zero-match.
+RUN python3 - <<'PYEOF'
+import sys, re, pathlib
+
+src = pathlib.Path("main.py").read_text()
+pattern = r'WhisperModel\(([^)]*)\)'
+
+def already_patched(m):
+    return 'device=' in m.group(1)
+
+matches = re.findall(pattern, src)
+if not matches:
+    print("WARN: WhisperModel() call not found in main.py — GPU patch skipped", file=sys.stderr)
+    sys.exit(0)
+
+def inject_cuda(m):
+    args = m.group(1)
+    if 'device=' in args:
+        return m.group(0)  # already has device=, leave as-is
+    return f'WhisperModel({args}, device="cuda", compute_type="float16")'
+
+patched = re.sub(pattern, inject_cuda, src)
+if patched == src:
+    print("WARN: no substitution made — verify upstream WhisperModel signature", file=sys.stderr)
+    sys.exit(0)
+
+pathlib.Path("main.py").write_text(patched)
+print("Patched main.py: WhisperModel calls now use device=cuda, compute_type=float16")
+PYEOF
+
+# Ensure the database directory exists at build time (matrix-nio creates the file at runtime)
+RUN mkdir -p /app/db
+
+CMD ["python3", "main.py"]

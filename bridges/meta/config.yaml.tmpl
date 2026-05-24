@@ -1,0 +1,67 @@
+# mautrix-meta configuration (Instagram + Messenger)
+# Python string.Template file — use render-configs.sh to render.
+# Variables: MATRIX_DOMAIN, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, BRIDGE_ADMIN_USER
+
+homeserver:
+  address: http://synapse:8008
+  domain: ${MATRIX_DOMAIN}
+  software: standard
+  status_endpoint: null
+  message_send_checkpoint_endpoint: null
+  async_media: false
+
+appservice:
+  address: http://mautrix-meta:29319
+  hostname: 0.0.0.0
+  port: 29319
+  max_body_size: 1
+
+  database:
+    type: postgres
+    uri: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_meta?sslmode=disable"
+    max_open_conns: 20
+    max_idle_conns: 2
+    max_conn_idle_time: null
+    max_conn_lifetime: null
+
+  id: meta
+  bot_username: metabot
+  bot_displayname: Meta bridge bot
+  bot_avatar: "mxc://maunium.net/ygtkteZsXnGJLJHRchUwYWak"
+
+  ephemeral_events: true
+  async_transactions: false
+
+  as_token: ""
+  hs_token: ""
+
+bridge:
+  # mautrix-meta (Go) uses Go text/template; {{.ID}} is the Meta user ID
+  username_template: "meta_{{.ID}}"
+  displayname_template: "{{.Name}} (Meta)"
+  personal_filtering_spaces: false
+  delivery_receipts: false
+  send_presence_on_typing: false
+  convert_voice_messages: false
+  portal_message_buffer: 128
+  sync_direct_chats: true
+  double_puppet_server_map: {}
+  double_puppet_allow_discovery: false
+  login_shared_secret_map: {}
+  command_prefix: "!meta"
+
+  permissions:
+    "${MATRIX_DOMAIN}": user
+    "${BRIDGE_ADMIN_USER}": admin
+
+# Meta-specific settings
+# Change mode to "instagram" for Instagram DMs instead of Messenger.
+meta:
+  mode: messenger
+  ig_e2ee: false
+
+logging:
+  min_level: info
+  writers:
+  - type: stdout
+    format: pretty-colored

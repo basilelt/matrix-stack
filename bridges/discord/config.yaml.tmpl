@@ -1,0 +1,61 @@
+# mautrix-discord configuration
+# Python string.Template file — use render-configs.sh to render.
+# Variables: MATRIX_DOMAIN, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, BRIDGE_ADMIN_USER
+
+homeserver:
+  address: http://synapse:8008
+  domain: ${MATRIX_DOMAIN}
+  software: standard
+  status_endpoint: null
+  message_send_checkpoint_endpoint: null
+  async_media: false
+
+appservice:
+  address: http://mautrix-discord:29334
+  hostname: 0.0.0.0
+  port: 29334
+  max_body_size: 1
+
+  database:
+    type: postgres
+    uri: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_discord?sslmode=disable"
+    max_open_conns: 20
+    max_idle_conns: 2
+    max_conn_idle_time: null
+    max_conn_lifetime: null
+
+  id: discord
+  bot_username: discordbot
+  bot_displayname: Discord bridge bot
+  bot_avatar: "mxc://maunium.net/nIdEykemnwdisvHMoAFAfxrE"
+
+  ephemeral_events: true
+  async_transactions: false
+
+  as_token: ""
+  hs_token: ""
+
+bridge:
+  # mautrix-discord (Go) uses Go text/template; {{.ID}} is the Discord snowflake user ID
+  username_template: "discord_{{.ID}}"
+  displayname_template: "{{.Username}} (Discord)"
+  personal_filtering_spaces: true
+  delivery_receipts: false
+  send_presence_on_typing: false
+  portal_message_buffer: 128
+  sync_direct_chats: true
+  double_puppet_server_map: {}
+  double_puppet_allow_discovery: false
+  login_shared_secret_map: {}
+  command_prefix: "!discord"
+  restricted_rooms: false
+
+  permissions:
+    "${MATRIX_DOMAIN}": user
+    "${BRIDGE_ADMIN_USER}": admin
+
+logging:
+  min_level: info
+  writers:
+  - type: stdout
+    format: pretty-colored

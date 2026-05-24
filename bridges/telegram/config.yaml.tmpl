@@ -1,0 +1,80 @@
+# mautrix-telegram configuration
+# Python string.Template file — use render-configs.sh to render.
+# Variables: MATRIX_DOMAIN, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, BRIDGE_ADMIN_USER,
+#            TELEGRAM_API_ID (integer), TELEGRAM_API_HASH (hex string from my.telegram.org/apps)
+
+homeserver:
+  address: http://synapse:8008
+  domain: ${MATRIX_DOMAIN}
+  software: standard
+  http_retry_count: 4
+
+appservice:
+  address: http://mautrix-telegram:29317
+  hostname: 0.0.0.0
+  port: 29317
+  max_body_size: 1
+
+  database:
+    type: postgres
+    uri: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_telegram?sslmode=disable"
+    max_open_conns: 20
+    max_idle_conns: 2
+    max_conn_idle_time: null
+    max_conn_lifetime: null
+
+  id: telegram
+  bot_username: telegrambot
+  bot_displayname: Telegram bridge bot
+  bot_avatar: "mxc://maunium.net/tJCRmUyJDsgRNgqhOgoiHWbX"
+
+  ephemeral_events: true
+  async_transactions: false
+
+  as_token: ""
+  hs_token: ""
+
+# Telegram API credentials — required, get from https://my.telegram.org/apps
+# api_id MUST be a non-zero integer; the bridge refuses to start without it.
+telegram:
+  api_id: ${TELEGRAM_API_ID}
+  api_hash: ${TELEGRAM_API_HASH}
+  bot_token: ""
+
+bridge:
+  # mautrix-telegram (Python) uses Python str.format; {tgid} is the Telegram user ID integer
+  username_template: "telegram_{tgid}"
+  displayname_template: "{displayname} (Telegram)"
+  max_initial_member_sync: -1
+  max_member_count: -1
+  sync_channel_members: true
+  skip_deleted_members: true
+  startup_sync: false
+  sync_update_limit: 0
+  sync_create_limit: 15
+  sync_direct_chats: false
+  max_telegram_delete_count: 10
+  sync_matrix_state: true
+  allow_matrix_login: true
+  plaintext_highlights: false
+  private_chat_portal_meta: default
+  federate_rooms: true
+  animated_sticker_conversion:
+    target: gif
+    args: {}
+  inline_images: false
+  image_as_file_size: 10
+  image_as_file_pixels: 16777216
+  caption_in_message: false
+  bridge_matrix_leave: true
+
+  permissions:
+    "*": relaybot
+    "${MATRIX_DOMAIN}": full
+    "${BRIDGE_ADMIN_USER}": admin
+
+logging:
+  min_level: info
+  writers:
+  - type: stdout
+    format: pretty-colored
