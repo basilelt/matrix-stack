@@ -29,13 +29,17 @@ preflight() {
 # ---------------------------------------------------------------------------
 
 do_create_lxc() {
-  local pubkey
+  local pubkey b64
   pubkey=$(cat "$SSH_KEY.pub")
+  # base64-encode the pubkey so it survives SSH quoting; prepend an export
+  # assignment before the script so PUBKEY is available when the script runs.
+  b64=$(printf '%s' "$pubkey" | base64 | tr -d '\n')
 
   echo "Creating LXC on Proxmox..."
-  # Pass pubkey via environment variable to avoid shell quoting hazards with
-  # special characters (spaces, single-quotes) that appear in key comment fields.
-  PUBKEY="$pubkey" px "bash -s ''" < "$SCRIPT_DIR/proxmox-create-lxc.sh"
+  {
+    printf 'export PUBKEY=$(printf "%%s" "%s" | base64 -d)\n' "$b64"
+    cat "$SCRIPT_DIR/proxmox-create-lxc.sh"
+  } | px "bash"
 
   echo "Waiting for LXC SSH..."
   local attempts=0
