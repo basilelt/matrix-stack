@@ -172,6 +172,49 @@ https://download.docker.com/linux/debian trixie stable" \
             # Fix username template from Python-era format to mautrix-go {{.}} style
             sed -i -E "s|username_template: ([a-z_]+)_\{[a-z_]+\}|username_template: \"\1_{{.}}\"|" "$bridge_cfg"
 
+            # Enable E2EE, backfill, avatars, full sync
+            python3 - "$bridge_cfg" <<'PY'
+import sys, re
+
+path = sys.argv[1]
+content = open(path).read()
+
+# E2EE: allow + default
+in_enc = False; enc_indent = None; lines = content.split('\n'); out = []
+for line in lines:
+    s = line.lstrip(); indent = len(line) - len(s)
+    if s.startswith('encryption:'): in_enc = True; enc_indent = indent
+    elif in_enc and s and not s.startswith('#') and indent <= enc_indent: in_enc = False
+    if in_enc:
+        if re.match(r'\s+allow: false', line): line = line.replace('allow: false', 'allow: true')
+        if re.match(r'\s+default: false', line): line = line.replace('default: false', 'default: true')
+    out.append(line)
+content = '\n'.join(out)
+
+# Backfill
+content = content.replace('    enabled: false\n    # Maximum number of messages',
+                           '    enabled: true\n    # Maximum number of messages')
+content = re.sub(r'max_initial_messages: \d+', 'max_initial_messages: 500', content, count=1)
+content = re.sub(r'max_catchup_messages: \d+', 'max_catchup_messages: 5000', content, count=1)
+
+# Avatars / profile info
+for old, new in [
+    ('contact_avatars: false', 'contact_avatars: true'),
+    ('use_contact_avatars: false', 'use_contact_avatars: true'),
+    ('contact_names: false', 'contact_names: true'),
+    ('phone_numbers_in_profile: false', 'phone_numbers_in_profile: true'),
+    ('ghost_extra_profile_info: false', 'ghost_extra_profile_info: true'),
+    ('login_sync_limit: 15', 'login_sync_limit: -1'),
+    ('forward_backfill: false', 'forward_backfill: true'),
+    ('backward_backfill: false', 'backward_backfill: true'),
+    ('sync_direct_chat_list: false', 'sync_direct_chat_list: true'),
+    ('enable_webhook_avatars: false', 'enable_webhook_avatars: true'),
+]:
+    content = content.replace(old, new)
+
+open(path, 'w').write(content)
+PY
+
             # Bridge-specific patches
             case "$b" in
               meta-fb)
