@@ -30,8 +30,10 @@ PUBKEY="${2:-${PUBKEY:-}}"
 [[ -z "$PUBKEY" ]] && die "PUBKEY required: pass as \$2 or set PUBKEY env var before calling this script"
 
 if [[ -z "$VMID" ]]; then
-    VMID="$(pct nextid)" || die "pct nextid failed"
-    log "Auto-selected VMID: $VMID"
+    # pct nextid not available on all Proxmox versions; compute from existing IDs
+    local_max="$(pct list 2>/dev/null | awk 'NR>1 {print $1}' | sort -n | tail -1 || true)"
+    VMID=$(( ${local_max:-100} + 1 ))
+    log "Auto-selected VMID: $VMID (next after $local_max)"
 fi
 
 # Validate VMID is a positive integer
