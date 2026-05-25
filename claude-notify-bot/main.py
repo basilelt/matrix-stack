@@ -2,12 +2,16 @@
 """claude-notify-bot — Matrix webhook relay for Claude Code session events."""
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import secrets
 from pathlib import Path
 
-from aiohttp import web
+from aiohttp import web, ClientSession
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from nio import AsyncClient, AsyncClientConfig, LoginResponse, RoomCreateResponse, RoomPreset
 
 LOG = logging.getLogger("claude-notify-bot")
@@ -68,6 +72,19 @@ def _render(data: dict) -> tuple[str, str]:
         sep_p = "\n" + " | ".join(mp) if mp else ""
         sep_h = "<br>" + " | ".join(mh) if mh else ""
         return tp + sep_p, th + sep_h
+
+
+def _b64(b: bytes) -> str:
+    return base64.b64encode(b).decode().rstrip("=")
+
+
+def _canonical_json(obj: dict) -> bytes:
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def _sign_key(key: Ed25519PrivateKey, obj: dict) -> str:
+    stripped = {k: v for k, v in obj.items() if k not in ("signatures", "unsigned")}
+    return _b64(key.sign(_canonical_json(stripped)))
 
 
 class NotifyBot:
@@ -150,9 +167,116 @@ class NotifyBot:
         )
         LOG.info("Sent %s event: %s", data.get("event"), resp)
 
+    async def _setup_cross_signing(self):
+        try:
+            store_path = Path(self.cfg["store_path"])
+            keys_file = store_path / "cross_signing_keys.json"
+
+            if keys_file.exists():
+                saved = json.loads(keys_file.read_text())
+                msk_seed = bytes.fromhex(saved["msk"])
+                ssk_seed = bytes.fromhex(saved["ssk"])
+            else:
+                msk_seed = secrets.token_bytes(32)
+                ssk_seed = secrets.token_bytes(32)
+                keys_file.write_text(json.dumps({"msk": msk_seed.hex(), "ssk": ssk_seed.hex()}))
+                LOG.info("Generated new cross-signing seeds")
+
+            msk = Ed25519PrivateKey.from_private_bytes(msk_seed)
+            ssk = Ed25519PrivateKey.from_private_bytes(ssk_seed)
+
+            raw = PublicFormat.Raw
+            enc = Encoding.Raw
+            msk_pub = _b64(msk.public_key().public_bytes(enc, raw))
+            ssk_pub = _b64(ssk.public_key().public_bytes(enc, raw))
+            msk_key_id = f"ed25519:{msk_pub}"
+            ssk_key_id = f"ed25519:{ssk_pub}"
+            user_id = self.cfg["user_id"]
+            device_id = self.client.device_id
+            hs = self.cfg["homeserver"]
+            hdrs = {"Authorization": f"Bearer {self.client.access_token}"}
+
+            async with ClientSession() as http:
+                # Check what's already on the server
+                async with http.post(
+                    f"{hs}/_matrix/client/v3/keys/query",
+                    json={"device_keys": {user_id: []}},
+                    headers=hdrs,
+                ) as r:
+                    keys_resp = await r.json()
+
+                server_msk_keys = keys_resp.get("master_keys", {}).get(user_id, {}).get("keys", {})
+                if msk_pub not in server_msk_keys.values():
+                    LOG.info("Uploading cross-signing keys")
+                    msk_obj = {"keys": {msk_key_id: msk_pub}, "usage": ["master"], "user_id": user_id}
+                    msk_obj["signatures"] = {user_id: {msk_key_id: _sign_key(msk, msk_obj)}}
+                    ssk_obj = {"keys": {ssk_key_id: ssk_pub}, "usage": ["self_signing"], "user_id": user_id}
+                    ssk_obj["signatures"] = {user_id: {msk_key_id: _sign_key(msk, ssk_obj)}}
+                    payload = {"master_key": msk_obj, "self_signing_key": ssk_obj}
+                    upload_url = f"{hs}/_matrix/client/v3/keys/device_signing/upload"
+
+                    async with http.post(upload_url, json=payload, headers=hdrs) as r:
+                        if r.status == 401:
+                            uiaa = await r.json()
+                            auth_payload = {
+                                **payload,
+                                "auth": {
+                                    "type": "m.login.password",
+                                    "identifier": {"type": "m.id.user", "user": user_id},
+                                    "password": self.cfg["password"],
+                                    "session": uiaa.get("session", ""),
+                                },
+                            }
+                            async with http.post(upload_url, json=auth_payload, headers=hdrs) as r2:
+                                if r2.status != 200:
+                                    LOG.error("Cross-signing upload failed %d: %s", r2.status, await r2.text())
+                                    return
+                        elif r.status != 200:
+                            LOG.error("Cross-signing upload failed %d: %s", r.status, await r.text())
+                            return
+                    LOG.info("Cross-signing keys uploaded")
+
+                    # Re-query after upload
+                    async with http.post(
+                        f"{hs}/_matrix/client/v3/keys/query",
+                        json={"device_keys": {user_id: []}},
+                        headers=hdrs,
+                    ) as r:
+                        keys_resp = await r.json()
+
+                device_key = keys_resp.get("device_keys", {}).get(user_id, {}).get(device_id)
+                if not device_key:
+                    LOG.warning("Own device key not found in keys/query — skipping device signing")
+                    return
+
+                if ssk_key_id in device_key.get("signatures", {}).get(user_id, {}):
+                    LOG.info("Device already signed by SSK")
+                    return
+
+                LOG.info("Signing device %s with SSK", device_id)
+                device_sig = _sign_key(ssk, device_key)
+                signed_device = dict(device_key)
+                sigs = {k: dict(v) for k, v in signed_device.get("signatures", {}).items()}
+                sigs.setdefault(user_id, {})[ssk_key_id] = device_sig
+                signed_device["signatures"] = sigs
+
+                async with http.post(
+                    f"{hs}/_matrix/client/v3/keys/signatures/upload",
+                    json={user_id: {device_id: signed_device}},
+                    headers=hdrs,
+                ) as r:
+                    if r.status != 200:
+                        LOG.error("signatures/upload failed %d: %s", r.status, await r.text())
+                        return
+                LOG.info("Device %s signed by SSK — cross-signing complete", device_id)
+
+        except Exception:
+            LOG.exception("Cross-signing setup failed — continuing without it")
+
     async def run(self):
         await self._login()
         await self._ensure_dm_room()
+        await self._setup_cross_signing()
         asyncio.create_task(self.client.sync_forever(timeout=30_000, full_state=False))
         LOG.info("Bot ready — DM room %s", self.room_id)
 
