@@ -307,6 +307,15 @@ PY
       docker compose build matrix-translate-bot
     fi
 
+    # ── 14b. Register claude-notify-bot user + build image (if enabled) ─────────
+    if [[ "${ENABLE_CLAUDE_NOTIFY:-false}" == "true" ]]; then
+      docker compose exec -T synapse register_new_matrix_user \
+        -u "${CLAUDE_NOTIFY_USER_LOCALPART:-claude-notify}" -p "$CLAUDE_NOTIFY_PASSWORD" --no-admin \
+        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      log "Building claude-notify-bot image..."
+      docker compose build claude-notify-bot
+    fi
+
     # ── 15a. Register cookie-refresher user + build image (if enabled) ──────────
     if [[ "${ENABLE_COOKIE_REFRESHER:-false}" == "true" ]]; then
       docker compose exec -T synapse register_new_matrix_user \

@@ -352,7 +352,39 @@ PY
 fi
 
 ###############################################################################
-# 8. Render cookie-refresher/config.json from template
+# 8. Render claude-notify-bot/config.json from template
+###############################################################################
+
+log "Rendering claude-notify-bot/config.json..."
+CLAUDE_NOTIFY_TMPL="${SCRIPT_DIR}/claude-notify-bot/config.json.tmpl"
+CLAUDE_NOTIFY_OUT="${SCRIPT_DIR}/claude-notify-bot/config.json"
+
+if [[ "${ENABLE_CLAUDE_NOTIFY:-false}" != "true" ]]; then
+  log "  claude-notify-bot disabled (ENABLE_CLAUDE_NOTIFY != true) — skipping."
+elif [[ ! -f "${CLAUDE_NOTIFY_TMPL}" ]]; then
+  warn "claude-notify-bot/config.json.tmpl not found — skipping."
+else
+  TMPL_PATH="${CLAUDE_NOTIFY_TMPL}" OUT_PATH="${CLAUDE_NOTIFY_OUT}" \
+  python3 - <<'PY'
+import os, string
+
+tmpl_path = os.environ["TMPL_PATH"]
+out_path  = os.environ["OUT_PATH"]
+
+with open(tmpl_path, "r") as f:
+    template = string.Template(f.read())
+
+rendered = template.safe_substitute(os.environ)
+
+with open(out_path, "w") as f:
+    f.write(rendered)
+print(f"  Written: {out_path}")
+PY
+  ok "claude-notify-bot/config.json rendered."
+fi
+
+###############################################################################
+# 9. Render cookie-refresher/config.json from template
 ###############################################################################
 
 log "Rendering cookie-refresher/config.json..."
@@ -415,6 +447,10 @@ fi
 
 if [[ "${ENABLE_COOKIE_REFRESHER:-false}" == "true" ]]; then
   PROFILES+=("cookie-refresher")
+fi
+
+if [[ "${ENABLE_CLAUDE_NOTIFY:-false}" == "true" ]]; then
+  PROFILES+=("claude-notify")
 fi
 
 # Join with commas

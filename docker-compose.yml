@@ -294,6 +294,25 @@ services:
       TZ: ${TZ}
     restart: unless-stopped
 
+  claude-notify-bot:
+    build:
+      context: ./claude-notify-bot
+      dockerfile: Dockerfile
+    image: claude-notify-bot:local
+    profiles:
+      - claude-notify
+    depends_on:
+      synapse:
+        condition: service_started
+    ports:
+      - "8095:8095"
+    volumes:
+      - ./claude-notify-bot/config.json:/app/config.json:ro
+      - ./claude-notify-bot/data/store:/app/store
+    environment:
+      TZ: ${TZ}
+    restart: unless-stopped
+
   cookie-refresher:
     build:
       context: ./cookie-refresher
