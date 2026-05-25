@@ -302,14 +302,30 @@ class TranslateBot:
                     invite_as_bot = b
                     break
             if not invite_token:
-                # Fall back to admin token
-                invite_token = admin_token
-                invite_as_bot = None
-            # Build invite URL (appservice token needs ?user_id= param)
+                # No bridge bot token — use Synapse admin force-join to avoid
+                # M_FORBIDDEN when admin user is not a room member
+                for attempt in range(5):
+                    r = self._admin_api(
+                        "POST",
+                        f"/_synapse/admin/v1/join/{enc_rid}",
+                        {"user_id": bot_id},
+                        token=admin_token,
+                    )
+                    if r.get("errcode") == "M_LIMIT_EXCEEDED":
+                        time.sleep(r.get("retry_after_ms", 3000) / 1000.0 + 0.5)
+                        continue
+                    break
+                if not r.get("errcode"):
+                    log.info(f"Room scan: force-joined {room.get('name', rid)}")
+                    invited += 1
+                else:
+                    log.debug(f"Room scan: join error {room.get('name', rid)}: {r.get('errcode')}: {r.get('error')}")
+                time.sleep(0.5)
+                continue
+            # Bridge bot token available — use regular invite
             invite_url = f"/_matrix/client/v3/rooms/{enc_rid}/invite"
-            if invite_as_bot:
-                enc_bot = urllib.parse.quote(invite_as_bot, safe="")
-                invite_url += f"?user_id={enc_bot}"
+            enc_bot = urllib.parse.quote(invite_as_bot, safe="")
+            invite_url += f"?user_id={enc_bot}"
             for attempt in range(5):
                 r = self._admin_api("POST", invite_url, {"user_id": bot_id}, token=invite_token)
                 if r.get("errcode") == "M_LIMIT_EXCEEDED":
