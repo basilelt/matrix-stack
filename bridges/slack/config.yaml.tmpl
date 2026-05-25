@@ -45,8 +45,16 @@ bridge:
   sync_direct_chats: true
   double_puppet_server_map: {}
   double_puppet_allow_discovery: false
-  login_shared_secret_map: {}
+  login_shared_secret_map:
+    ${MATRIX_DOMAIN}: ${DOUBLE_PUPPET_SECRET}
   command_prefix: "!slack"
+
+  relay:
+    allow: true
+    admin_only: false
+    prefer_default: true
+    allow_bridge: true
+    default_relays: []
 
   permissions:
     "${MATRIX_DOMAIN}": user

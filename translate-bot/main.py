@@ -242,19 +242,18 @@ class TranslateBot:
         """Periodically find bridge rooms the bot isn't in and self-invite."""
         interval = self.cfg.get("room_scan_interval", 300)
         bridge_bots = set(self.cfg.get("bridge_bots", []))
-        invite_as = self.cfg.get("invite_as_user")
         bot_id = self.cfg["user_id"]
 
         while True:
             try:
-                await asyncio.sleep(5)  # short initial delay for login to settle
+                await asyncio.sleep(5)
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, self._scan_and_invite, bridge_bots, invite_as, bot_id)
+                await loop.run_in_executor(None, self._scan_and_invite, bridge_bots, bot_id)
             except Exception as e:
                 log.exception(f"_room_scan_loop error: {e}")
             await asyncio.sleep(interval)
 
-    def _scan_and_invite(self, bridge_bots: set, invite_as: str, bot_id: str):
+    def _scan_and_invite(self, bridge_bots: set, bot_id: str):
         # Get admin token
         resp = self._admin_api("POST", "/_matrix/client/v3/login", {
             "type": "m.login.password",
@@ -266,13 +265,7 @@ class TranslateBot:
             log.warning(f"Room scan: admin login failed: {resp.get('error')}")
             return
 
-        # Get invite-as user token
-        enc = urllib.parse.quote(invite_as, safe="")
-        resp = self._admin_api("POST", f"/_synapse/admin/v1/users/{enc}/login", token=admin_token)
-        user_token = resp.get("access_token")
-        if not user_token:
-            log.warning(f"Room scan: user impersonation failed: {resp.get('error')}")
-            return
+
 
         # Paginate all rooms
         rooms = []
@@ -297,22 +290,38 @@ class TranslateBot:
                 continue
             if bot_id in member_ids:
                 continue
-            if invite_as not in member_ids:
-                continue
             import time
+            bridge_tokens = self.cfg.get("bridge_tokens", {})
+            present_bots = bridge_bots.intersection(member_ids)
+            # Find a bridge bot token we can use to invite
+            invite_token = None
+            invite_as_bot = None
+            for b in present_bots:
+                if b in bridge_tokens:
+                    invite_token = bridge_tokens[b]
+                    invite_as_bot = b
+                    break
+            if not invite_token:
+                # Fall back to admin token
+                invite_token = admin_token
+                invite_as_bot = None
+            # Build invite URL (appservice token needs ?user_id= param)
+            invite_url = f"/_matrix/client/v3/rooms/{enc_rid}/invite"
+            if invite_as_bot:
+                enc_bot = urllib.parse.quote(invite_as_bot, safe="")
+                invite_url += f"?user_id={enc_bot}"
             for attempt in range(5):
-                r = self._admin_api("POST", f"/_matrix/client/v3/rooms/{enc_rid}/invite",
-                                    {"user_id": bot_id}, token=user_token)
+                r = self._admin_api("POST", invite_url, {"user_id": bot_id}, token=invite_token)
                 if r.get("errcode") == "M_LIMIT_EXCEEDED":
-                    time.sleep(r.get("retry_after_ms", 2000) / 1000.0 + 0.5)
+                    time.sleep(r.get("retry_after_ms", 3000) / 1000.0 + 0.5)
                     continue
                 break
             if not r.get("errcode"):
                 log.info(f"Room scan: joined {room.get('name', rid)}")
                 invited += 1
             else:
-                log.debug(f"Room scan: invite error {room.get('name', rid)}: {r.get('errcode')}")
-            time.sleep(0.3)
+                log.debug(f"Room scan: invite error {room.get('name', rid)}: {r.get('errcode')}: {r.get('error')}")
+            time.sleep(0.5)
 
         if invited:
             log.info(f"Room scan: invited bot to {invited} new room(s)")

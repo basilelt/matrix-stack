@@ -18,13 +18,10 @@ appservice:
   port: 29339
   max_body_size: 1
 
-  database:
-    type: postgres
-    uri: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_linkedin?sslmode=disable"
-    max_open_conns: 20
-    max_idle_conns: 2
-    max_conn_idle_time: null
-    max_conn_lifetime: null
+  database: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_linkedin?sslmode=disable"
+  database_opts:
+    min_size: 1
+    max_size: 10
 
   id: linkedin
   bot_username: linkedinbot
@@ -45,8 +42,15 @@ bridge:
   portal_message_buffer: 128
   double_puppet_server_map: {}
   double_puppet_allow_discovery: false
-  login_shared_secret_map: {}
+  login_shared_secret_map:
+    ${MATRIX_DOMAIN}: ${DOUBLE_PUPPET_SECRET}
   command_prefix: "!li"
+
+  encryption:
+    allow: true
+    default: true
+    require: false
+    allow_key_sharing: true
 
   permissions:
     "${MATRIX_DOMAIN}": user
@@ -54,7 +58,20 @@ bridge:
     "@translate-bot:${MATRIX_DOMAIN}": admin
 
 logging:
-  level: INFO
+  version: 1
+  formatters:
+    colored:
+      (): mautrix.util.logging.color.ColorFormatter
+      format: "[%(asctime)s] [%(levelname)s@%(name)s] %(message)s"
   handlers:
-  - type: stdout
-    format: colored
+    console:
+      class: logging.StreamHandler
+      formatter: colored
+  loggers:
+    mau:
+      level: DEBUG
+    aiohttp:
+      level: INFO
+  root:
+    level: INFO
+    handlers: [console]
