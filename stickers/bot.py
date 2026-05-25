@@ -1,29 +1,34 @@
 #!/usr/bin/env python3
-"""matrix-sticker-bot — watches the stickers room for .wastickers uploads and auto-imports them."""
+"""matrix-sticker-bot (E2EE) — watches stickers room for .wastickers uploads, auto-imports."""
+import asyncio
 import importlib.util
 import json
 import logging
 import tempfile
-import time
 from pathlib import Path
+from typing import Optional
 
-import httpx
+from nio import (
+    AsyncClient, AsyncClientConfig, LoginResponse,
+    RoomMessageFile, MegolmEvent, DownloadError,
+    OlmUnverifiedDeviceError,
+)
+from nio.crypto import decrypt_attachment
 
-# Load import.py via importlib (module name 'import' is a Python keyword)
+# Load import.py helpers via importlib (module name 'import' is a Python keyword)
 _spec = importlib.util.spec_from_file_location("importer", Path(__file__).parent / "import.py")
 _importer = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_importer)
-
 load_config = _importer.load_config
-get_access_token = _importer.get_access_token
 import_pack = _importer.import_pack
 
 LOG = logging.getLogger("sticker-bot")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s — %(message)s")
 
-SYNC_TOKEN_FILE = Path("/app/data/sync_token.txt")
+STORE_DIR = Path("/app/data/store")
 SEEN_FILE = Path("/app/data/seen.json")
 SEEN_MAX = 500
+DEVICE_ID = "STICKERBOT01"
 
 
 def _load_seen() -> set:
@@ -33,173 +38,160 @@ def _load_seen() -> set:
 
 
 def _save_seen(seen: set) -> None:
-    lst = list(seen)[-SEEN_MAX:]
-    SEEN_FILE.write_text(json.dumps(lst))
+    SEEN_FILE.write_text(json.dumps(list(seen)[-SEEN_MAX:]))
 
 
-def _mxc_to_download_url(hs: str, mxc: str) -> str:
-    without_scheme = mxc[len("mxc://"):]
-    return f"{hs}/_matrix/media/v3/download/{without_scheme}"
+class StickerBot:
+    def __init__(self, cfg: dict):
+        self.cfg = cfg
+        self.hs = cfg["homeserver_url"].rstrip("/")
+        self.room_id = cfg["stickers_room_id"]
+        self.seen = _load_seen()
+        STORE_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def _send_message(hs: str, token: str, room_id: str, body: str) -> None:
-    txn_id = f"bot-{int(time.time() * 1000)}"
-    httpx.put(
-        f"{hs}/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"msgtype": "m.text", "body": body},
-        timeout=30,
-    ).raise_for_status()
-
-
-def _react(hs: str, token: str, room_id: str, event_id: str, key: str) -> None:
-    txn_id = f"react-{int(time.time() * 1000)}"
-    httpx.put(
-        f"{hs}/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"m.relates_to": {"rel_type": "m.annotation", "event_id": event_id, "key": key}},
-        timeout=30,
-    ).raise_for_status()
-
-
-def process_event(cfg: dict, token: str, event: dict) -> None:
-    content = event.get("content", {})
-    if content.get("msgtype") != "m.file":
-        return
-    body = content.get("body", "")
-    if not body.lower().endswith(".wastickers"):
-        return
-
-    event_id = event["event_id"]
-    hs = cfg["homeserver_url"].rstrip("/")
-    room_id = cfg["stickers_room_id"]
-    mxc = content.get("url", "")
-    if not mxc.startswith("mxc://"):
-        LOG.warning("Event %s has no mxc URL — skipping", event_id)
-        return
-
-    LOG.info("Processing upload: %s (%s)", body, event_id)
-
-    try:
-        resp = httpx.get(
-            _mxc_to_download_url(hs, mxc),
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=120,
-            follow_redirects=True,
+        domain = self.hs.split("//")[-1]
+        self.client = AsyncClient(
+            self.hs,
+            f"@{cfg['stickers_user']}:{domain}",
+            device_id=DEVICE_ID,
+            store_path=str(STORE_DIR),
+            config=AsyncClientConfig(
+                encryption_enabled=True,
+                store_sync_tokens=True,
+                max_limit_exceeded=0,
+                max_timeouts=0,
+            ),
         )
-        resp.raise_for_status()
 
-        with tempfile.NamedTemporaryFile(suffix=".wastickers", delete=False) as tmp:
-            tmp.write(resp.content)
-            tmp_path = Path(tmp.name)
+    async def _login(self) -> None:
+        resp = await self.client.login(self.cfg["stickers_password"], device_name="sticker-bot")
+        if not isinstance(resp, LoginResponse):
+            raise RuntimeError(f"Login failed: {resp}")
+        self.client.load_store()
+        if self.client.should_upload_keys:
+            await self.client.keys_upload()
+        if self.client.should_query_keys:
+            await self.client.keys_query()
+        LOG.info("Logged in as %s (device %s)", self.client.user_id, DEVICE_ID)
 
-        result = import_pack(cfg, token, tmp_path)
-        tmp_path.unlink(missing_ok=True)
+    def _trust_room_devices(self) -> None:
+        room = self.client.rooms.get(self.room_id)
+        if not room:
+            return
+        for user_id in room.users:
+            try:
+                for device in self.client.device_store.active_user_devices(user_id):
+                    if not device.verified and not device.blacklisted:
+                        self.client.verify_device(device)
+                        LOG.debug("Trusted device %s for %s", device.device_id, user_id)
+            except Exception:
+                pass
 
-        _react(hs, token, room_id, event_id, "✅")
-        if result is not None:
-            pack_id, pack_title, n = result
-            _send_message(hs, token, room_id,
-                          f"Imported '{pack_title}' ({n} stickers) — pack id {pack_id}")
-        else:
-            _send_message(hs, token, room_id, f"Imported {body}")
+    async def _react(self, event_id: str, key: str) -> None:
+        content = {"m.relates_to": {"rel_type": "m.annotation", "event_id": event_id, "key": key}}
+        for _ in range(3):
+            try:
+                await self.client.room_send(self.room_id, "m.reaction", content)
+                return
+            except OlmUnverifiedDeviceError as e:
+                self.client.verify_device(e.device)
+            except Exception as exc:
+                LOG.warning("react failed: %s", exc)
+                return
 
-    except Exception as exc:
-        LOG.exception("Failed to import %s", body)
+    async def _send_message(self, body: str) -> None:
+        content = {"msgtype": "m.text", "body": body}
+        for _ in range(3):
+            try:
+                await self.client.room_send(self.room_id, "m.room.message", content)
+                return
+            except OlmUnverifiedDeviceError as e:
+                self.client.verify_device(e.device)
+            except Exception as exc:
+                LOG.warning("send_message failed: %s", exc)
+                return
+
+    async def _process(self, event_id: str, body: str, mxc: str,
+                       file_info: Optional[dict]) -> None:
+        if not body.lower().endswith(".wastickers"):
+            return
+        if event_id in self.seen:
+            return
+        self.seen.add(event_id)
+        _save_seen(self.seen)
+
+        LOG.info("Processing upload: %s (%s)", body, event_id)
         try:
-            _react(hs, token, room_id, event_id, "❌")
-            _send_message(hs, token, room_id, f"Import failed: {exc}")
-        except Exception:
-            pass
+            resp = await self.client.download(mxc)
+            if isinstance(resp, DownloadError):
+                raise RuntimeError(f"Download error: {resp.message}")
 
+            data = resp.body
+            if file_info:
+                data = decrypt_attachment(
+                    data,
+                    file_info["key"]["k"],
+                    file_info["hashes"]["sha256"],
+                    file_info["iv"],
+                )
 
-def run() -> None:
-    cfg = load_config()
-    hs = cfg["homeserver_url"].rstrip("/")
-    room_id = cfg["stickers_room_id"]
-    token = get_access_token(cfg)
+            with tempfile.NamedTemporaryFile(suffix=".wastickers", delete=False) as tmp:
+                tmp.write(data)
+                tmp_path = Path(tmp.name)
 
-    domain = hs.split("//")[-1]
-    stickers_user_id = f"@{cfg['stickers_user']}:{domain}"
-
-    LOG.info("Logged in as %s", stickers_user_id)
-    LOG.info("Watching room %s", room_id)
-
-    seen = _load_seen()
-
-    since = None
-    if SYNC_TOKEN_FILE.exists():
-        since = SYNC_TOKEN_FILE.read_text().strip() or None
-
-    if since is None:
-        LOG.info("First run — getting initial sync position (skipping upload backlog)...")
-        resp = httpx.get(
-            f"{hs}/_matrix/client/v3/sync",
-            params={"filter": json.dumps({"room": {"timeline": {"limit": 1}}}), "timeout": 0},
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        since = resp.json().get("next_batch")
-        if since:
-            SYNC_TOKEN_FILE.write_text(since)
-            LOG.info("Initial sync token saved — listening for new uploads only.")
-
-    retry_delay = 5
-    while True:
-        try:
-            params: dict = {"timeout": 30000}
-            if since:
-                params["since"] = since
-
-            resp = httpx.get(
-                f"{hs}/_matrix/client/v3/sync",
-                params=params,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=60,
+            token = self.client.access_token
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, import_pack, self.cfg, token, tmp_path
             )
-            resp.raise_for_status()
-            data = resp.json()
-            retry_delay = 5
+            tmp_path.unlink(missing_ok=True)
 
-            since = data.get("next_batch", since)
-            if since:
-                SYNC_TOKEN_FILE.write_text(since)
-
-            rooms_join = data.get("rooms", {}).get("join", {})
-            room_data = rooms_join.get(room_id, {})
-            events = room_data.get("timeline", {}).get("events", [])
-
-            for event in events:
-                if event.get("type") != "m.room.message":
-                    continue
-                if event.get("sender") == stickers_user_id:
-                    continue
-                event_id = event.get("event_id", "")
-                if event_id in seen:
-                    continue
-                seen.add(event_id)
-                try:
-                    process_event(cfg, token, event)
-                except Exception:
-                    LOG.exception("Unhandled error processing event %s", event_id)
-
-            _save_seen(seen)
-
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 401:
-                LOG.error("Token rejected — refreshing login")
-                Path("/app/data/access_token.txt").unlink(missing_ok=True)
-                token = get_access_token(cfg)
+            await self._react(event_id, "✅")
+            if result is not None:
+                pack_id, pack_title, n = result
+                await self._send_message(
+                    f"Imported '{pack_title}' ({n} stickers) — pack id {pack_id}"
+                )
             else:
-                LOG.warning("HTTP %s from /sync — retrying in %ds", exc.response.status_code, retry_delay)
-                time.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, 60)
+                await self._send_message(f"Imported {body}")
+
         except Exception as exc:
-            LOG.warning("Sync error: %s — retrying in %ds", exc, retry_delay)
-            time.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, 60)
+            LOG.exception("Failed to import %s", body)
+            try:
+                await self._react(event_id, "❌")
+                await self._send_message(f"Import failed: {exc}")
+            except Exception:
+                pass
+
+    async def _on_file(self, room, event: RoomMessageFile) -> None:
+        if room.room_id != self.room_id or event.sender == self.client.user_id:
+            return
+        content = event.source.get("content", {})
+        file_info = content.get("file")
+        mxc = file_info["url"] if file_info else event.url
+        asyncio.create_task(self._process(event.event_id, event.body, mxc, file_info))
+
+    async def _on_megolm(self, room, event: MegolmEvent) -> None:
+        if room.room_id == self.room_id:
+            LOG.warning("Undecryptable event %s — missing Megolm session key", event.event_id)
+
+    async def start(self) -> None:
+        await self._login()
+        # Initial sync to populate room state, then trust devices
+        await self.client.sync(timeout=10_000, full_state=True)
+        self._trust_room_devices()
+
+        self.client.add_event_callback(self._on_file, RoomMessageFile)
+        self.client.add_event_callback(self._on_megolm, MegolmEvent)
+
+        LOG.info("Watching room %s (E2EE)", self.room_id)
+        await self.client.sync_forever(timeout=30_000, full_state=True)
+
+
+async def main() -> None:
+    cfg = load_config()
+    bot = StickerBot(cfg)
+    await bot.start()
 
 
 if __name__ == "__main__":
-    run()
+    asyncio.run(main())
