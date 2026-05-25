@@ -24,6 +24,9 @@ mkdir -p \
   "${SCRIPT_DIR}/synapse/media_store" \
   "${SCRIPT_DIR}/stt-bot/data/models" \
   "${SCRIPT_DIR}/postgres/data" \
+  "${SCRIPT_DIR}/stickers/web/packs" \
+  "${SCRIPT_DIR}/stickers/data" \
+  "${SCRIPT_DIR}/stickers/input" \
   "${SCRIPT_DIR}/bridges/whatsapp/data" \
   "${SCRIPT_DIR}/bridges/telegram/data" \
   "${SCRIPT_DIR}/bridges/signal/data" \
@@ -74,6 +77,10 @@ content = textwrap.dedent("""\
             header_up X-Forwarded-For {{remote_host}}
             header_up X-Forwarded-Proto https
         }}
+    }}
+    handle_path /stickerpicker/* {{
+        root * /srv/stickerpicker
+        file_server
     }}
     handle {{
         respond "Matrix server. Use a Matrix client like Element." 200
@@ -420,6 +427,38 @@ PY
 fi
 
 ###############################################################################
+# 9b. Render stickers/config.json from template
+###############################################################################
+
+log "Rendering stickers/config.json..."
+STICKERS_TMPL="${SCRIPT_DIR}/stickers/config.json.tmpl"
+STICKERS_OUT="${SCRIPT_DIR}/stickers/config.json"
+
+if [[ "${ENABLE_STICKERS:-false}" != "true" ]]; then
+  log "  stickers disabled (ENABLE_STICKERS != true) — skipping."
+elif [[ ! -f "${STICKERS_TMPL}" ]]; then
+  warn "stickers/config.json.tmpl not found — skipping."
+else
+  TMPL_PATH="${STICKERS_TMPL}" OUT_PATH="${STICKERS_OUT}" \
+  python3 - <<'PY'
+import os, string
+
+tmpl_path = os.environ["TMPL_PATH"]
+out_path  = os.environ["OUT_PATH"]
+
+with open(tmpl_path, "r") as f:
+    template = string.Template(f.read())
+
+rendered = template.safe_substitute(os.environ)
+
+with open(out_path, "w") as f:
+    f.write(rendered)
+print(f"  Written: {out_path}")
+PY
+  ok "stickers/config.json rendered."
+fi
+
+###############################################################################
 # 9. Compute and write COMPOSE_PROFILES
 ###############################################################################
 
@@ -455,6 +494,10 @@ fi
 
 if [[ "${ENABLE_CLAUDE_NOTIFY:-false}" == "true" ]]; then
   PROFILES+=("claude-notify")
+fi
+
+if [[ "${ENABLE_STICKERS:-false}" == "true" ]]; then
+  PROFILES+=("stickers")
 fi
 
 # Join with commas

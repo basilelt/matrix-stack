@@ -388,6 +388,82 @@ DPPY
       docker compose build claude-notify-bot
     fi
 
+    # ── 14c. Register stickers user + build image (if enabled) ─────────────────
+    if [[ "${ENABLE_STICKERS:-false}" == "true" ]]; then
+      docker compose exec -T synapse register_new_matrix_user \
+        -u "${STICKERS_USER_LOCALPART:-stickers}" -p "$STICKERS_PASSWORD" --no-admin \
+        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      log "Building sticker-importer image..."
+      docker compose --profile stickers build matrix-sticker-importer
+    fi
+
+    # ── 14d. Wire Favorites space ↔ stickers room (bidirectional, idempotent) ─
+    _fav="${FAVORITES_SPACE_ID:-}"
+    _stk="${STICKERS_ROOM_ID:-}"
+    if [[ -n "$_fav" && -n "$_stk" \
+       && "$_fav" != "!placeholder"* && "$_stk" != "!placeholder"* ]]; then
+      log "Wiring Favorites space ↔ stickers room..."
+
+      # Login as admin to get a token for space state event + invite
+      _admin_token=$(curl -sf -X POST "http://localhost:8008/_matrix/client/v3/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"${SYNAPSE_ADMIN_USER}\"},\"password\":\"${SYNAPSE_ADMIN_PASSWORD}\"}" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true
+
+      # Build JSON bodies via Python to avoid shell quoting issues with variable expansion
+      _child_body=$(python3 -c "import json; print(json.dumps({'via':['${MATRIX_DOMAIN}'],'suggested':False}))")
+      _parent_body=$(python3 -c "import json; print(json.dumps({'via':['${MATRIX_DOMAIN}'],'canonical':True}))")
+      _invite_body=$(python3 -c "import json; print(json.dumps({'user_id':'@${MATRIX_USER}:${MATRIX_DOMAIN}'}))")
+
+      if [[ -n "$_admin_token" ]]; then
+        # PUT m.space.child on the Favorites space (admin owns it)
+        _fav_enc=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${_fav}', safe=''))")
+        _stk_enc=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${_stk}', safe=''))")
+
+        curl -sf -X PUT \
+          "http://localhost:8008/_matrix/client/v3/rooms/${_fav_enc}/state/m.space.child/${_stk_enc}" \
+          -H "Authorization: Bearer ${_admin_token}" \
+          -H "Content-Type: application/json" \
+          -d "$_child_body" >/dev/null \
+          || echo "  WARN: could not set m.space.child on Favorites space (may lack permission)"
+
+        # Invite MATRIX_USER into stickers room (needed for space membership visibility)
+        curl -sf -X POST \
+          "http://localhost:8008/_matrix/client/v3/rooms/${_stk_enc}/invite" \
+          -H "Authorization: Bearer ${_admin_token}" \
+          -H "Content-Type: application/json" \
+          -d "$_invite_body" >/dev/null \
+          || true  # swallow 403 "already in room"
+
+        ok "m.space.child wired on Favorites space."
+      else
+        echo "  WARN: admin login failed — skipping Favorites space wiring"
+      fi
+
+      # Login as @stickers to set m.space.parent on the stickers room (needs PL ≥ 50 there)
+      _stk_token=$(curl -sf -X POST "http://localhost:8008/_matrix/client/v3/login" \
+        -H "Content-Type: application/json" \
+        -d "$(python3 -c "import json; print(json.dumps({'type':'m.login.password','identifier':{'type':'m.id.user','user':'${STICKERS_USER_LOCALPART:-stickers}'},'password':'${STICKERS_PASSWORD}'}))")" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true
+
+      if [[ -n "$_stk_token" ]]; then
+        _fav_enc=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${_fav}', safe=''))")
+        _stk_enc=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${_stk}', safe=''))")
+
+        # PUT m.space.parent on the stickers room (stickers user has PL ≥ 50)
+        curl -sf -X PUT \
+          "http://localhost:8008/_matrix/client/v3/rooms/${_stk_enc}/state/m.space.parent/${_fav_enc}" \
+          -H "Authorization: Bearer ${_stk_token}" \
+          -H "Content-Type: application/json" \
+          -d "$_parent_body" >/dev/null \
+          || echo "  WARN: could not set m.space.parent on stickers room (check stickers user PL ≥ 50)"
+
+        ok "m.space.parent wired on stickers room."
+      else
+        echo "  WARN: stickers login failed — skipping m.space.parent (STICKERS_PASSWORD set?)"
+      fi
+    fi
+
     # ── 15a. Register cookie-refresher user + build image (if enabled) ──────────
     if [[ "${ENABLE_COOKIE_REFRESHER:-false}" == "true" ]]; then
       docker compose exec -T synapse register_new_matrix_user \

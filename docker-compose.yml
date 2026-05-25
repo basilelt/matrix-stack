@@ -50,6 +50,7 @@ services:
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/data:/data
+      - ./stickers/web:/srv/stickerpicker:ro
     restart: unless-stopped
 
   mautrix-whatsapp:
@@ -329,6 +330,42 @@ services:
     environment:
       TZ: ${TZ}
       COOKIE_REFRESHER_KEY: ${COOKIE_REFRESHER_KEY:-}
+    restart: unless-stopped
+
+  matrix-sticker-importer:
+    build:
+      context: ./stickers
+      dockerfile: Dockerfile
+    image: matrix-sticker-importer:local
+    command: ["python3", "import.py"]
+    profiles:
+      - stickers
+    depends_on:
+      synapse:
+        condition: service_started
+    volumes:
+      - ./stickers/config.json:/app/config.json:ro
+      - ./stickers/data:/app/data
+      - ./stickers/web/packs:/app/packs
+      - ./stickers/input:/input:ro
+    environment:
+      TZ: ${TZ}
+    restart: "no"
+
+  matrix-sticker-bot:
+    image: matrix-sticker-importer:local
+    command: ["python3", "bot.py"]
+    profiles:
+      - stickers
+    depends_on:
+      synapse:
+        condition: service_started
+    volumes:
+      - ./stickers/config.json:/app/config.json:ro
+      - ./stickers/data:/app/data
+      - ./stickers/web/packs:/app/packs
+    environment:
+      TZ: ${TZ}
     restart: unless-stopped
 
   watchtower:
