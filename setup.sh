@@ -174,21 +174,42 @@ https://download.docker.com/linux/debian trixie stable" \
 
             # Enable E2EE, backfill, avatars, full sync
             python3 - "$bridge_cfg" <<'PY'
-import sys, re
+import sys, re, secrets as _sec
 
 path = sys.argv[1]
 content = open(path).read()
 
-# E2EE: allow + default
+# E2EE: allow, default, self_sign, msc4190, pickle_key rotation, allow_key_sharing
 in_enc = False; enc_indent = None; lines = content.split('\n'); out = []
+enc_keys_seen = set()
+
+def flush_missing(enc_indent, enc_keys_seen, out):
+    ins = ' ' * (enc_indent + 4)
+    if 'self_sign' not in enc_keys_seen:
+        out.append(f'{ins}self_sign: true')
+    if 'msc4190' not in enc_keys_seen:
+        out.append(f'{ins}msc4190: true')
+
 for line in lines:
     s = line.lstrip(); indent = len(line) - len(s)
-    if s.startswith('encryption:'): in_enc = True; enc_indent = indent
-    elif in_enc and s and not s.startswith('#') and indent <= enc_indent: in_enc = False
+    if s.startswith('encryption:'):
+        in_enc = True; enc_indent = indent; enc_keys_seen = set()
+    elif in_enc and s and not s.startswith('#') and indent <= enc_indent:
+        flush_missing(enc_indent, enc_keys_seen, out)
+        in_enc = False
     if in_enc:
+        m = re.match(r'\s+(\w+):', line)
+        if m: enc_keys_seen.add(m.group(1))
         if re.match(r'\s+allow: false', line): line = line.replace('allow: false', 'allow: true')
         if re.match(r'\s+default: false', line): line = line.replace('default: false', 'default: true')
+        if re.match(r'\s+self_sign: false', line): line = line.replace('self_sign: false', 'self_sign: true')
+        if re.match(r'\s+msc4190: false', line): line = line.replace('msc4190: false', 'msc4190: true')
+        if re.match(r'\s+allow_key_sharing: false', line): line = line.replace('allow_key_sharing: false', 'allow_key_sharing: true')
+        if re.match(r'\s+pickle_key: mautrix\.bridge\.e2ee\s*$', line):
+            line = line.replace('pickle_key: mautrix.bridge.e2ee', f'pickle_key: {_sec.token_hex(32)}')
     out.append(line)
+if in_enc:
+    flush_missing(enc_indent, enc_keys_seen, out)
 content = '\n'.join(out)
 
 # Backfill
@@ -264,6 +285,57 @@ PY
       else
         warn "No registration.yaml for ${b} — skipping appservice registration"
       fi
+    done
+
+    # ── 9b. Doublepuppet appservice registration + wire secrets into bridge configs
+    dp_reg="$SCRIPT_DIR/synapse/appservices/doublepuppet-registration.yaml"
+    if [[ ! -f "$dp_reg" ]]; then
+      [[ -n "${DOUBLE_PUPPET_SECRET:-}" ]] || DOUBLE_PUPPET_SECRET="$(openssl rand -hex 32)"
+      cat > "$dp_reg" <<DPREG
+id: doublepuppet
+url: null
+as_token: ${DOUBLE_PUPPET_SECRET}
+hs_token: $(openssl rand -hex 32)
+sender_localpart: doublepuppet_$(openssl rand -hex 6)
+namespaces:
+  users:
+    - regex: '@.*:${MATRIX_DOMAIN}'
+      exclusive: false
+  rooms: []
+  aliases: []
+DPREG
+      log "Created doublepuppet appservice registration"
+    fi
+
+    dp_token="$(grep '^as_token:' "$dp_reg" | awk '{print $2}')"
+    for b in whatsapp telegram signal discord slack gmessages twitter googlechat linkedin meta-fb meta-ig; do
+      bridge_cfg="$SCRIPT_DIR/bridges/${b}/config.yaml"
+      [[ -f "$bridge_cfg" ]] || continue
+      python3 - "$bridge_cfg" "$MATRIX_DOMAIN" "$dp_token" <<'DPPY'
+import sys, re
+
+path, domain, token = sys.argv[1], sys.argv[2], sys.argv[3]
+content = open(path).read()
+
+# Modern format: double_puppet:\n    secrets:\n (empty block → add entry)
+pat_modern = re.compile(r'(^double_puppet:\n(?:    [^\n]*\n)*?    secrets:\n)(    [^\n]*\n)*', re.M)
+def inject_modern(m):
+    block = m.group(0)
+    if f'{domain}:' in block:
+        return block  # already wired
+    indent = '        '
+    return block + f'{indent}{domain}: as_token:{token}\n'
+new = pat_modern.sub(inject_modern, content)
+
+# Old format: login_shared_secret_map: {} → wire under bridge:
+pat_old = re.compile(r'(    login_shared_secret_map:) \{\}')
+if pat_old.search(new) and f'login_shared_secret_map:' not in new.replace('    login_shared_secret_map: {}', ''):
+    new = pat_old.sub(f'\\1\n        {domain}: {token}', new)
+
+if new != content:
+    open(path, 'w').write(new)
+    print(f'  Wired double_puppet for {path}')
+DPPY
     done
 
     # ── 10. Re-render configs with appservice paths now that registrations exist

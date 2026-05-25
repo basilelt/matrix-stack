@@ -115,6 +115,10 @@ script_dir      = env.get("SCRIPT_DIR", ".")
 import os
 bridges = ["whatsapp", "telegram", "signal", "discord", "slack", "gmessages", "twitter", "googlechat", "linkedin", "meta-fb", "meta-ig"]
 appservice_files = []
+# Always include doublepuppet appservice if it exists
+dp_reg = os.path.join(script_dir, "synapse", "appservices", "doublepuppet-registration.yaml")
+if os.path.exists(dp_reg):
+    appservice_files.append("/data/appservices/doublepuppet-registration.yaml")
 for bridge in bridges:
     key = f"ENABLE_BRIDGE_{bridge.upper().replace('-', '_')}"
     if env.get(key, "false").strip().lower() == "true":
