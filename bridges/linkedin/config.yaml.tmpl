@@ -7,15 +7,33 @@
 # Login via DM with @linkedinbot. Send "login" and follow the cookie flow.
 # The bridge needs 3 request headers from browser devtools — plain cookies are NOT enough.
 #
+# !! CRITICAL — spoof the User-Agent BEFORE capturing the cURL !!
+# The bridge sends a hardcoded Linux Chrome 141 UA to LinkedIn's realtime endpoint.
+# LinkedIn binds session cookies to the UA used at login time; if they don't match,
+# /realtime/connect returns 401 every ~10 min → BAD_CREDENTIALS loop even though
+# voyager/api calls succeed. You MUST capture the session under the same UA the bridge uses.
+#
+# The bridge's UA (matches image dock.mau.dev/mautrix/linkedin:v0.2604.0, ChromeVersion=141):
+#   Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36
+# If the image is bumped and the Go constant ChromeVersion changes, update this string to match.
+#
 # Steps:
-#   1. Open linkedin.com/messaging in a NEW Incognito/Private window and log in
-#   2. Open DevTools → Network tab
-#   3. Find a request to www.linkedin.com/voyager/api/... (filter by "voyager/api")
+#   1. Open Chrome (Chromium) → DevTools (F12) → ⋮ menu → More tools → Network conditions
+#   2. Under "User agent", UNCHECK "Use browser default"
+#      Paste EXACTLY:
+#        Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36
+#   3. In the SAME tab (UA override is per-tab), open linkedin.com/messaging and log in
+#   4. Open DevTools → Network tab
+#   5. Find a request to www.linkedin.com/voyager/api/... (filter by "voyager/api")
 #      IMPORTANT: must be a voyager/api request — it's the only one that includes
 #      the X-LI-Track and X-LI-Page-Instance headers the bridge requires
-#   4. Right-click the request → Copy → Copy as cURL
-#   5. Close the browser tab (before pasting)
-#   6. Paste the full cURL string into the bridge login prompt
+#   6. Right-click the request → Copy → Copy as cURL
+#   7. Close the browser tab (before pasting — keeps LinkedIn from rotating the session)
+#   8. Paste the full cURL string into the bridge login prompt
+#
+# Even with a matching UA, LinkedIn periodically expires sessions (normal security behaviour).
+# Expect an occasional manual re-login (weeks timescale) — that is not a bug.
+# The UA fix eliminates the rapid re-auth loop (minutes/hours), not the periodic one.
 #
 # The bridge extracts these fields automatically from the cURL:
 #   - Cookie header        (contains JSESSIONID etc.)
