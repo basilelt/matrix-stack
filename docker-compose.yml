@@ -185,11 +185,8 @@ services:
     restart: unless-stopped
 
   mautrix-linkedin:
-    image: ghcr.io/beeper/linkedin:latest
-    labels:
-      wud.watch: "true"
-      wud.tag.include: '^v\d+\.\d+\.\d+$$'
-      wud.compose.file: /wud/docker-compose.yml
+    image: dock.mau.dev/mautrix/linkedin:v0.2604.0
+    <<: *wud-calver
     profiles:
       - linkedin
     depends_on:

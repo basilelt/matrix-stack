@@ -137,8 +137,8 @@ https://download.docker.com/linux/debian trixie stable" \
         bridge_cfg="$SCRIPT_DIR/bridges/${b}/config.yaml"
 
         case "$b" in
-          linkedin|googlechat)
-            # Python bridges: rely on template rendered by render-configs.sh
+          googlechat)
+            # Python bridge: relies on template rendered by render-configs.sh
             if [[ ! -f "$bridge_cfg" ]]; then
               warn "No config for ${b} — run render-configs.sh first, then re-run setup.sh"
               continue
@@ -265,8 +265,8 @@ PY
               -g -c /data/config.yaml -r /data/registration.yaml 2>&1 \
               || warn "Registration gen failed for ${b}"
             ;;
-          linkedin|googlechat)
-            # Python bridges: use container's default entrypoint
+          googlechat)
+            # Python bridge: use container's default entrypoint
             docker compose run --rm "$svc" \
               -g -c /data/config.yaml -r /data/registration.yaml 2>&1 \
               || warn "Registration gen failed for ${b}"
