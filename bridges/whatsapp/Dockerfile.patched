@@ -1,0 +1,43 @@
+# Custom mautrix-whatsapp v0.2605.0 with whatsmeow a.whatsapp.net fix
+# WhatsApp now sends sticker messages with URL="https://a.whatsapp.net" (no path),
+# same as the old web.whatsapp.net placeholder. Whatsmeow only skips web.whatsapp.net;
+# this patch adds a.whatsapp.net to that check so directPath is used instead.
+
+FROM golang:1-alpine3.23 AS builder
+
+RUN apk add --no-cache git ca-certificates build-base su-exec olm-dev
+
+RUN git clone --depth=1 --branch v0.2605.0 https://github.com/mautrix/whatsapp /build
+WORKDIR /build
+
+# Vendor all deps so we can patch in-tree
+RUN go mod vendor
+
+# Patch 1: treat https://a.whatsapp.net like https://web.whatsapp.net (skip direct URL,
+# use directPath via DownloadMediaWithPath instead)
+RUN sed -i \
+    's|strings\.HasPrefix(url, "https://web\.whatsapp\.net")|strings.HasPrefix(url, "https://web.whatsapp.net") \|\| strings.HasPrefix(url, "https://a.whatsapp.net")|g' \
+    vendor/go.mau.fi/whatsmeow/download.go
+
+# Patch 2: diagnostic — if patch fires but directPath is also empty, log clearly
+RUN sed -i \
+    's|Got a media message with a web\.whatsapp\.net URL (%s) and no direct path|[a.whatsapp.net-patch] placeholder URL=%s but directPath empty - sticker cannot be bridged|g' \
+    vendor/go.mau.fi/whatsmeow/download.go
+
+# Verify both patches applied
+RUN grep -n 'a\.whatsapp\.net\|placeholder URL' vendor/go.mau.fi/whatsmeow/download.go
+
+RUN go build -mod=vendor -trimpath -o mautrix-whatsapp ./cmd/mautrix-whatsapp/
+
+FROM alpine:3.23
+
+ENV UID=1337 \
+    GID=1337
+
+RUN apk add --no-cache ffmpeg su-exec ca-certificates olm bash jq curl yq-go lottieconverter
+
+COPY --from=builder /build/mautrix-whatsapp /usr/bin/mautrix-whatsapp
+COPY --from=builder /build/docker-run.sh /docker-run.sh
+
+VOLUME /data
+CMD ["/docker-run.sh"]

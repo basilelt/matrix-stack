@@ -6,8 +6,8 @@ React with a flag emoji on any text message to translate it.
 React with 🎙️ on any audio/voice message to transcribe it via Whisper.
 
 For messages sent before the bot joined: the bot requests the Megolm session
-key from the bridge on first attempt. React again after ~30s once the key
-has been shared and synced.
+key from the bridge and automatically retries for up to 120s (8×15s). No need
+to react again — the bot will process the message once the key arrives.
 """
 import asyncio
 import json
@@ -566,8 +566,8 @@ class TranslateBot:
         proc_key = (room.room_id, target_id)
         log.info(f"_retry_after_key started for {target_id} stt={is_stt}")
         try:
-            for attempt in range(4):
-                await asyncio.sleep(15)  # let sync run; key should arrive within 1-2 cycles
+            for attempt in range(8):
+                await asyncio.sleep(15)  # let sync run; key should arrive within 1-4 cycles (up to 120s)
                 log.info(f"_retry_after_key attempt {attempt+1} for {target_id}")
                 cached = self._cache.get(room.room_id, {}).get(target_id)
                 if cached is None:
@@ -592,7 +592,7 @@ class TranslateBot:
                     else:
                         await self._do_translate(room.room_id, reply_to, cached, lang)
                     return
-            await self._reply(room.room_id, reply_to, "❌ Bridge did not share decryption key after 60s.")
+            await self._reply(room.room_id, reply_to, "❌ Bridge did not share decryption key after 120s.")
         except Exception as e:
             log.exception(f"_retry_after_key failed: {e}")
         finally:
