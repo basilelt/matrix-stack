@@ -1,0 +1,242 @@
+# mautrix/linkedin configuration (Go bridge, maintained)
+# Python string.Template file — use render-configs.sh to render.
+# Variables: MATRIX_DOMAIN, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, BRIDGE_ADMIN_USER, DOUBLE_PUPPET_SECRET
+#
+# LOGIN INSTRUCTIONS
+# ------------------
+# Login via DM with @linkedinbot. Send "login" and follow the cookie flow.
+# The bridge needs 3 request headers from browser devtools — plain cookies are NOT enough.
+#
+# Steps:
+#   1. Open linkedin.com/messaging in a NEW Incognito/Private window and log in
+#   2. Open DevTools → Network tab
+#   3. Find a request to www.linkedin.com/voyager/api/... (filter by "voyager/api")
+#      IMPORTANT: must be a voyager/api request — it's the only one that includes
+#      the X-LI-Track and X-LI-Page-Instance headers the bridge requires
+#   4. Right-click the request → Copy → Copy as cURL
+#   5. Close the browser tab (before pasting)
+#   6. Paste the full cURL string into the bridge login prompt
+#
+# The bridge extracts these fields automatically from the cURL:
+#   - Cookie header        (contains JSESSIONID etc.)
+#   - X-LI-Track          (contains clientVersion)
+#   - X-LI-Page-Instance  (contains urn:li:page)
+
+# Network-specific config options
+network:
+    # Displayname template for LinkedIn users.
+    # .FirstName is replaced with the first name
+    # .LastName is replaced with the last name
+    # .Organization is replaced with the organization name
+    displayname_template: "{{ with .Organization }}{{ . }}{{ else }}{{ .FirstName }} {{ .LastName }}{{ end }} (LinkedIn)"
+    sync:
+        # Number of most recently active dialogs to check when syncing chats.
+        # Set to 0 to remove limit.
+        update_limit: 0
+        # Number of most recently active dialogs to create portals for when syncing
+        # chats.
+        # Set to 0 to remove limit.
+        create_limit: 10
+
+# Config options that affect the central bridge module.
+bridge:
+    command_prefix: '!linkedin'
+    personal_filtering_spaces: true
+    private_chat_portal_meta: true
+    async_events: false
+    split_portals: false
+    resend_bridge_info: false
+    no_bridge_info_state_key: false
+    bridge_status_notices: errors
+    unknown_error_auto_reconnect: null
+    unknown_error_max_auto_reconnects: 10
+    bridge_matrix_leave: false
+    bridge_notices: false
+    tag_only_on_create: true
+    only_bridge_tags: [m.favourite, m.lowpriority]
+    mute_only_on_create: true
+    deduplicate_matrix_messages: false
+    cross_room_replies: false
+    revert_failed_state_changes: false
+    kick_matrix_users: true
+    enable_send_state_requests: false
+    phone_numbers_in_profile: true
+
+    cleanup_on_logout:
+        enabled: false
+        manual:
+            private: nothing
+            relayed: nothing
+            shared_no_users: nothing
+            shared_has_users: nothing
+        bad_credentials:
+            private: nothing
+            relayed: nothing
+            shared_no_users: nothing
+            shared_has_users: nothing
+
+    relay:
+        enabled: false
+        admin_only: true
+        prefer_default: true
+        allow_bridge: true
+        default_relays: []
+        message_formats:
+            m.text: "<b>{{ .Sender.DisambiguatedName }}</b>: {{ .Message }}"
+            m.notice: "<b>{{ .Sender.DisambiguatedName }}</b>: {{ .Message }}"
+            m.emote: "* <b>{{ .Sender.DisambiguatedName }}</b> {{ .Message }}"
+            m.file: "<b>{{ .Sender.DisambiguatedName }}</b> sent a file{{ if .Caption }}: {{ .Caption }}{{ end }}"
+            m.image: "<b>{{ .Sender.DisambiguatedName }}</b> sent an image{{ if .Caption }}: {{ .Caption }}{{ end }}"
+            m.audio: "<b>{{ .Sender.DisambiguatedName }}</b> sent an audio file{{ if .Caption }}: {{ .Caption }}{{ end }}"
+            m.video: "<b>{{ .Sender.DisambiguatedName }}</b> sent a video{{ if .Caption }}: {{ .Caption }}{{ end }}"
+            m.location: "<b>{{ .Sender.DisambiguatedName }}</b> sent a location{{ if .Caption }}: {{ .Caption }}{{ end }}"
+        displayname_format: "{{ .DisambiguatedName }}"
+
+    portal_create_filter:
+        mode: deny
+        list: []
+        always_deny_from_login: []
+
+    permissions:
+        "*": relay
+        "${MATRIX_DOMAIN}": user
+        "${BRIDGE_ADMIN_USER}": admin
+
+# Config for the bridge's database.
+database:
+    type: postgres
+    uri: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_linkedin?sslmode=disable"
+    max_open_conns: 5
+    max_idle_conns: 1
+    max_conn_idle_time: null
+    max_conn_lifetime: null
+
+# Homeserver details.
+homeserver:
+    address: http://synapse:8008
+    domain: ${MATRIX_DOMAIN}
+    software: standard
+    status_endpoint:
+    message_send_checkpoint_endpoint:
+    async_media: false
+    websocket: false
+    ping_interval_seconds: 0
+
+# Application service host/registration details.
+appservice:
+    address: http://mautrix-linkedin:29341
+    public_address: https://bridge.example.com
+    hostname: 0.0.0.0
+    port: 29341
+    id: linkedin
+    bot:
+        username: linkedinbot
+        displayname: LinkedIn bridge bot
+        avatar: mxc://maunium.net/CqzBEHjrLsfdqixWZgNHMlRT
+    ephemeral_events: true
+    async_transactions: false
+    # Autogenerated — do not modify
+    as_token: ""
+    hs_token: ""
+    username_template: linkedin_{{.}}
+
+# Matrix connector options.
+matrix:
+    message_status_events: false
+    delivery_receipts: false
+    message_error_notices: true
+    sync_direct_chat_list: true
+    federate_rooms: true
+    upload_file_threshold: 5242880
+    ghost_extra_profile_info: true
+
+analytics:
+    token: null
+    url: https://api.segment.io/v1/track
+    user_id: null
+
+provisioning:
+    shared_secret: generate
+    allow_matrix_auth: true
+    debug_endpoints: false
+    enable_session_transfers: false
+
+public_media:
+    enabled: false
+    signing_key: generate
+    expiry: 0
+    hash_length: 32
+    path_prefix: /_mautrix/publicmedia
+    use_database: false
+
+direct_media:
+    enabled: false
+    server_name: linkedin-media.example.com
+    well_known_response:
+    media_id_prefix:
+    allow_proxy: true
+    server_key: generate
+
+backfill:
+    enabled: true
+    max_initial_messages: 500
+    max_catchup_messages: 5000
+    unread_hours_threshold: 720
+    threads:
+        max_initial_messages: 50
+    queue:
+        enabled: false
+        manual: false
+        batch_size: 100
+        batch_delay: 20
+        max_batches: -1
+        max_batches_override: {}
+
+double_puppet:
+    servers: {}
+    allow_discovery: false
+    secrets:
+        ${MATRIX_DOMAIN}: "as_token:${DOUBLE_PUPPET_SECRET}"
+
+encryption:
+    allow: true
+    default: true
+    require: false
+    appservice: false
+    msc4190: true
+    msc4392: false
+    self_sign: true
+    allow_key_sharing: true
+    pickle_key: generate
+    delete_keys:
+        delete_outbound_on_ack: false
+        dont_store_outbound: false
+        ratchet_on_decrypt: false
+        delete_fully_used_on_decrypt: false
+        delete_prev_on_new_session: false
+        delete_on_device_delete: false
+        periodically_delete_expired: false
+        delete_outdated_inbound: false
+    verification_levels:
+        receive: unverified
+        send: unverified
+        share: cross-signed-tofu
+    rotation:
+        enable_custom: false
+        milliseconds: 604800000
+        messages: 100
+        disable_device_change_key_rotation: false
+
+env_config_prefix: null
+
+logging:
+    min_level: debug
+    writers:
+        - type: stdout
+          format: pretty-colored
+        - type: file
+          format: json
+          filename: ./logs/bridge.log
+          max_size: 100
+          max_backups: 10
+          compress: false
