@@ -38,7 +38,7 @@ Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_LXC_IP:8080 → 
 | Tail one service | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose logs -f synapse"` |
 | Restart service | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose restart synapse"` |
 | Apply .env changes | `ssh root@YOUR_LXC_IP` then: `cd /opt/matrix-stack && ./setup.sh` |
-| Force container updates | `ssh root@YOUR_LXC_IP "docker exec watchtower /watchtower --run-once"` |
+| Force container updates | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose restart wud"` |
 | Force OS updates | `ssh root@YOUR_LXC_IP "systemctl start auto-update.service"` |
 | Add SSH pubkey | `ssh root@YOUR_LXC_IP "echo 'ssh-ed25519 AAAA...' >> /root/.ssh/authorized_keys"` |
 | Backup | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && tar czf ~/backup.tgz .env synapse bridges stt-bot postgres/data"` |
@@ -53,7 +53,12 @@ Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_LXC_IP:8080 → 
 3. DM `@telegrambot:matrix.example.com` → send `login` → enter phone + OTP
 4. DM `@signalbot:matrix.example.com` → send `link` → scan from Signal mobile (Linked Devices)
 5. DM `@discordbot:matrix.example.com` → send `login-token user <token>`
-6. DM `@metabot:matrix.example.com` → send `login-cookie` with FB/Instagram session cookies
+6. DM `@slackbot:matrix.example.com` → send `login` → follow OAuth flow
+7. DM `@gmessagesbot:matrix.example.com` → send `login` → follow QR pairing flow
+8. DM `@twitterbot:matrix.example.com` → send `login` → enter credentials
+9. DM `@linkedinbot:matrix.example.com` → send `login` → follow cookie login flow
+10. DM `@messengerbot:matrix.example.com` → send `login-cookie` with Facebook session cookies
+11. DM `@instagrambot:matrix.example.com` → send `login-cookie` with Instagram session cookies
 
 ## Telegram bridge note
 
@@ -161,10 +166,26 @@ curl -s -X PUT \
 - Download with a third-party tool like [wa-sticker-exporter](https://github.com/nicolo-ribaudo/wa-sticker-exporter).
 - Hand-build a folder of WebP images (max 512×512, ≤30 per pack).
 
+## Claude notify bot
+
+Receives a webhook POST and forwards it as an encrypted Matrix message. Intended for alerting from Claude Code or CI.
+
+1. In `.env`: set `ENABLE_CLAUDE_NOTIFY=true`, fill `CLAUDE_NOTIFY_WEBHOOK_TOKEN` (`openssl rand -hex 32`), set `CLAUDE_NOTIFY_ROOM_ID` to the target room ID.
+2. Run `./setup.sh` on the LXC.
+3. Wire the Cloudflare tunnel to forward `https://notify.example.com` → `http://YOUR_LXC_IP:8095` — the bot only listens on `127.0.0.1:8095` and **must** sit behind the tunnel; it is not safe to expose directly.
+
+Send a notification:
+```bash
+curl -s -X POST https://notify.example.com/notify \
+  -H "Authorization: Bearer <CLAUDE_NOTIFY_WEBHOOK_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Deploy finished"}'
+```
+
 ## Verification checklist
 
 - [ ] `curl -s https://matrix.example.com/_matrix/client/versions | python3 -m json.tool` → JSON with `versions`
 - [ ] Element login as `@admin:matrix.example.com` works
 - [ ] Each bridge bot responds to `help` in DM
 - [ ] `ssh root@YOUR_LXC_IP "systemctl list-timers | grep auto-update"`
-- [ ] `ssh root@YOUR_LXC_IP "docker logs watchtower"`
+- [ ] `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose logs wud"`

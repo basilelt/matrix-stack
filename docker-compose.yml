@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
 
   synapse:
-    image: matrixdotorg/synapse:latest
+    image: matrixdotorg/synapse:v1.153.0
     <<: *wud-off
     depends_on:
       postgres:
@@ -277,8 +277,8 @@ services:
     restart: unless-stopped
 
   libretranslate:
-    image: libretranslate/libretranslate:latest
-    <<: *wud-off
+    image: libretranslate/libretranslate:v1.9.6
+    <<: *wud-semver
     profiles:
       - translate
     environment:
@@ -328,7 +328,7 @@ services:
       synapse:
         condition: service_started
     ports:
-      - "8095:8095"
+      - "127.0.0.1:8095:8095"
     volumes:
       - ./claude-notify-bot/config.json:/app/config.json:ro
       - ./claude-notify-bot/data/store:/app/store
