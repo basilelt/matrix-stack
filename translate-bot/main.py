@@ -19,7 +19,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Optional
 
@@ -73,6 +73,7 @@ FLAG_TO_LANG: dict[str, str] = {
 }
 STT_EMOJIS = {"🎙️", "🎙", "🎤", "🎤️"}  # studio mic + plain mic, with/without variation selector
 MAX_CACHED_EVENTS_PER_ROOM = 500
+MAX_DONE = 1000  # max completed-operation dedup entries
 
 
 def _b64(b: bytes) -> str:
@@ -191,6 +192,10 @@ class TranslateBot:
         self._pending: dict[str, dict] = defaultdict(dict)
         # (room_id, target_id) currently being retried in background
         self._processing: set = set()
+        # completed operations: ("stt"|"tr", room_id, target_id[, lang]) → True
+        # prevents bridge-echo duplicates where the same logical reaction arrives
+        # as two distinct events (e.g. Element native + WA puppet echo)
+        self._done: OrderedDict = OrderedDict()
 
     def _cache_put(self, room_id, event_id, body, msgtype, mxc=None, file=None):
         room_cache = self._cache[room_id]
@@ -722,7 +727,16 @@ class TranslateBot:
             return entry
         return None
 
+    def _done_mark(self, key: tuple):
+        self._done[key] = True
+        if len(self._done) > MAX_DONE:
+            self._done.popitem(last=False)
+
     async def _do_translate(self, room_id: str, target_id: str, cached: dict, lang: str):
+        key = ("tr", room_id, target_id, lang)
+        if key in self._done:
+            log.info(f"_do_translate: duplicate suppressed for {target_id} lang={lang}")
+            return
         if cached["msgtype"] not in ("m.text", "m.notice", "m.emote"):
             await self._reply(room_id, target_id, "❌ Can only translate text messages.")
             return
@@ -730,10 +744,15 @@ class TranslateBot:
         result = await call_libretranslate(cached["body"], lang, self.lt_url)
         if result:
             await self._reply(room_id, target_id, f"🌐 {result}")
+            self._done_mark(key)
         else:
             await self._reply(room_id, target_id, "❌ Translation failed — LibreTranslate unreachable?")
 
     async def _do_stt(self, room_id: str, target_id: str, cached: dict):
+        key = ("stt", room_id, target_id)
+        if key in self._done:
+            log.info(f"_do_stt: duplicate suppressed for {target_id}")
+            return
         if cached["msgtype"] != "m.audio":
             await self._reply(room_id, target_id, "❌ Not an audio message.")
             return
@@ -779,6 +798,8 @@ class TranslateBot:
                 room_id, target_id,
                 f"📝 {text}" if text else "❌ Could not transcribe audio."
             )
+            if text:
+                self._done_mark(key)
         finally:
             os.unlink(tmp)
 

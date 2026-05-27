@@ -65,32 +65,6 @@ https://download.docker.com/linux/debian trixie stable" \
       "$SCRIPT_DIR/install-os-autoupdate.sh"
     fi
 
-    # ── 6. NVIDIA Container Toolkit (stt-gpu only) ───────────────────────────
-    if [[ "${STT_GPU:-false}" == "true" ]]; then
-      if ! command -v nvidia-smi &>/dev/null; then
-        die "nvidia-smi not found — install NVIDIA drivers and enable GPU passthrough in the LXC config, then re-run"
-      fi
-
-      # Use dpkg-query for reliable installed-only check (excludes rc state)
-      if ! dpkg-query -W -f='${Status}' nvidia-container-toolkit 2>/dev/null | grep -q "install ok installed"; then
-        log "Installing NVIDIA Container Toolkit"
-        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-          | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-        curl -sSL \
-          https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-          | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-          > /etc/apt/sources.list.d/nvidia-container-toolkit.list
-        apt-get update -qq
-        apt-get install -y nvidia-container-toolkit
-      fi
-
-      nvidia-ctk runtime configure --runtime=docker
-      systemctl restart docker
-      log "Running GPU smoke test..."
-      docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi \
-        || die "GPU smoke test failed — check LXC GPU passthrough and NVIDIA driver compatibility"
-    fi
-
     # ── 7. Render configs; read active profiles ──────────────────────────────
     "$SCRIPT_DIR/render-configs.sh"
     PROFILES=$(cat "$SCRIPT_DIR/.compose-profiles")
@@ -363,13 +337,6 @@ DPPY
       -u "$SYNAPSE_ADMIN_USER" -p "$SYNAPSE_ADMIN_PASSWORD" -a \
       -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
 
-    # ── 13. Register STT bot user (if enabled) ───────────────────────────────
-    if [[ "${ENABLE_STT_BOT:-false}" == "true" ]]; then
-      docker compose exec -T synapse register_new_matrix_user \
-        -u "$STT_BOT_USER_LOCALPART" -p "$STT_BOT_PASSWORD" --no-admin \
-        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
-    fi
-
     # ── 14. Register translate-bot user + build image (if enabled) ───────────
     if [[ "${ENABLE_TRANSLATE_BOT:-false}" == "true" ]]; then
       docker compose exec -T synapse register_new_matrix_user \
@@ -507,12 +474,6 @@ PYEOF
       docker compose build cookie-refresher
     fi
 
-    # ── 15. Build GPU image if needed ────────────────────────────────────────
-    if [[ "$PROFILES" == *"stt-gpu"* ]]; then
-      log "Building GPU image (this may take a while)..."
-      docker compose build matrix-stt-bot-gpu
-    fi
-
     # ── 15. Bring everything up ───────────────────────────────────────────────
     docker compose up -d
     ok "Stack is up."
@@ -523,23 +484,8 @@ PYEOF
     echo "Next steps:"
     echo "  1. Log in via Element: https://app.element.io"
     echo "  2. DM each bridge bot to link accounts (see README.md)"
-    if [[ "${ENABLE_STT_BOT:-false}" == "true" ]]; then
-      echo "  3. Invite @${STT_BOT_USER_LOCALPART:-stt-bot}:${MATRIX_DOMAIN} into rooms"
-      echo "  4. Update STT_BOT_ROOM_ID in .env, re-run ./setup.sh"
-    fi
     ;;
 
-  rebuild-gpu)
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    export SCRIPT_DIR
-    load_env
-    cd "$SCRIPT_DIR"
-    PROFILES=$(cat "$SCRIPT_DIR/.compose-profiles" 2>/dev/null || echo "")
-    export COMPOSE_PROFILES="$PROFILES"
-    docker compose build matrix-stt-bot-gpu --no-cache
-    docker compose up -d matrix-stt-bot-gpu
-    ok "GPU image rebuilt and restarted."
-    ;;
 
   register-user)
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

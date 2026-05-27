@@ -226,56 +226,6 @@ services:
       - ./bridges/meta-ig:/data
     restart: unless-stopped
 
-  # NOTE: stt-cpu and stt-gpu share volume paths (./stt-bot/data/db, etc.).
-  # Running both profiles simultaneously will cause SQLite lock contention / corruption.
-  # Treat stt-cpu and stt-gpu as mutually exclusive.
-  matrix-stt-bot:
-    image: ghcr.io/hibobmaster/matrix-stt-bot@sha256:4862f1472d1456c68be795c013537b166b21579a6af0ff4f8d784e6061c9dd92
-    <<: *wud-off
-    profiles:
-      - stt-cpu
-    depends_on:
-      synapse:
-        condition: service_started
-    environment:
-      TZ: ${TZ}
-    volumes:
-      - ./stt-bot/config.json:/app/config.json:ro
-      - ./stt-bot/data/db:/app/db
-      - ./stt-bot/data/models:/app/models
-      - ./stt-bot/element-keys.txt:/app/element-keys.txt:ro
-    restart: unless-stopped
-
-  matrix-stt-bot-gpu:
-    build:
-      context: ./stt-bot
-      dockerfile: Dockerfile.gpu
-    image: matrix-stt-bot:gpu-local
-    <<: *wud-off
-    profiles:
-      - stt-gpu
-    depends_on:
-      synapse:
-        condition: service_started
-    environment:
-      TZ: ${TZ}
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-    volumes:
-      - ./stt-bot/config.json:/app/config.json:ro
-      - ./stt-bot/data/db:/app/db
-      - ./stt-bot/data/models:/app/models
-      - ./stt-bot/element-keys.txt:/app/element-keys.txt:ro
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities:
-                - gpu
-    restart: unless-stopped
-
   libretranslate:
     image: libretranslate/libretranslate:v1.9.6
     <<: *wud-semver

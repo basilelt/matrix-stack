@@ -84,7 +84,7 @@ do_deploy() {
     echo "  nano /opt/matrix-stack/.env"
     echo ""
     echo "Set POSTGRES_PASSWORD, SYNAPSE_REGISTRATION_SHARED_SECRET,"
-    echo "SYNAPSE_ADMIN_PASSWORD, STT_BOT_PASSWORD (all: openssl rand -hex 32)"
+    echo "SYNAPSE_ADMIN_PASSWORD (all: openssl rand -hex 32)"
     echo "Set TELEGRAM_API_ID + TELEGRAM_API_HASH if enabling Telegram bridge."
     echo "Flip ENABLE_BRIDGE_* flags as desired."
     echo ""

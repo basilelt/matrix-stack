@@ -1,6 +1,6 @@
 # matrix-stack
 
-Self-hosted Matrix homeserver + bridges + Whisper STT on a single Debian 13 LXC, behind Cloudflare Tunnel.
+Self-hosted Matrix homeserver + bridges on a single Debian 13 LXC, behind Cloudflare Tunnel.
 
 ## Prerequisites on the Mac
 
@@ -41,9 +41,8 @@ Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_LXC_IP:8080 → 
 | Force container updates | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose restart wud"` |
 | Force OS updates | `ssh root@YOUR_LXC_IP "systemctl start auto-update.service"` |
 | Add SSH pubkey | `ssh root@YOUR_LXC_IP "echo 'ssh-ed25519 AAAA...' >> /root/.ssh/authorized_keys"` |
-| Backup | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && tar czf ~/backup.tgz .env synapse bridges stt-bot postgres/data"` |
+| Backup | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && tar czf ~/backup.tgz .env synapse bridges postgres/data"` |
 | Stop stack | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose down"` |
-| Rebuild GPU image | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && ./setup.sh rebuild-gpu"` |
 | Register a new user | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && ./setup.sh register-user"` |
 
 ## Bring each bridge online (after deploy)
@@ -63,13 +62,6 @@ Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_LXC_IP:8080 → 
 ## Telegram bridge note
 
 `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` in `.env` must be set before enabling the Telegram bridge. Get them from [my.telegram.org/apps](https://my.telegram.org/apps) — register a "personal use" app.
-
-## STT bot — invite to rooms
-
-After bridges are linked and portal rooms appear:
-1. Invite `@stt-bot:matrix.example.com` into rooms you want transcribed.
-2. Edit `STT_BOT_ROOM_ID` in `/opt/matrix-stack/.env`.
-3. Run `./setup.sh` on the LXC to re-render the config and restart the bot.
 
 ## Stickers
 

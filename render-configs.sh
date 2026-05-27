@@ -22,8 +22,7 @@ mkdir -p \
   "${SCRIPT_DIR}/caddy/data" \
   "${SCRIPT_DIR}/synapse/appservices" \
   "${SCRIPT_DIR}/synapse/media_store" \
-  "${SCRIPT_DIR}/stt-bot/data/models" \
-  "${SCRIPT_DIR}/postgres/data" \
+"${SCRIPT_DIR}/postgres/data" \
   "${SCRIPT_DIR}/stickers/web/packs" \
   "${SCRIPT_DIR}/stickers/data" \
   "${SCRIPT_DIR}/stickers/input" \
@@ -299,39 +298,7 @@ PY
 done
 
 ###############################################################################
-# 6. Render stt-bot/config.json from template
-###############################################################################
-
-log "Rendering stt-bot/config.json..."
-STT_BOT_TMPL="${SCRIPT_DIR}/stt-bot/config.json.tmpl"
-STT_BOT_OUT="${SCRIPT_DIR}/stt-bot/config.json"
-
-if [[ "${ENABLE_STT_BOT:-false}" != "true" ]]; then
-  log "  stt-bot disabled (ENABLE_STT_BOT != true) — skipping."
-elif [[ ! -f "${STT_BOT_TMPL}" ]]; then
-  warn "stt-bot/config.json.tmpl not found — skipping."
-else
-  TMPL_PATH="${STT_BOT_TMPL}" OUT_PATH="${STT_BOT_OUT}" \
-  python3 - <<'PY'
-import os, string
-
-tmpl_path = os.environ["TMPL_PATH"]
-out_path  = os.environ["OUT_PATH"]
-
-with open(tmpl_path, "r") as f:
-    template = string.Template(f.read())
-
-rendered = template.safe_substitute(os.environ)
-
-with open(out_path, "w") as f:
-    f.write(rendered)
-print(f"  Written: {out_path}")
-PY
-  ok "stt-bot/config.json rendered."
-fi
-
-###############################################################################
-# 7. Render translate-bot/config.json from template
+# 6. Render translate-bot/config.json from template
 ###############################################################################
 
 # Extract bridge as_tokens from registration files so the translate-bot config
@@ -498,17 +465,6 @@ for bridge in "${BRIDGES[@]}"; do
   fi
 done
 
-ENABLE_STT_BOT="${ENABLE_STT_BOT:-false}"
-STT_GPU="${STT_GPU:-false}"
-
-if [[ "${ENABLE_STT_BOT}" == "true" ]]; then
-  if [[ "${STT_GPU}" == "true" ]]; then
-    PROFILES+=("stt-gpu")
-  else
-    PROFILES+=("stt-cpu")
-  fi
-fi
-
 if [[ "${ENABLE_TRANSLATE_BOT:-false}" == "true" ]]; then
   PROFILES+=("translate")
 fi
@@ -537,14 +493,5 @@ done
 
 printf '%s\n' "${COMPOSE_PROFILES_STR}" > "${SCRIPT_DIR}/.compose-profiles"
 ok "Compose profiles written: ${COMPOSE_PROFILES_STR:-<none>}"
-
-###############################################################################
-# 10. Touch stt-bot/element-keys.txt if missing
-###############################################################################
-
-if [[ ! -f "${SCRIPT_DIR}/stt-bot/element-keys.txt" ]]; then
-  touch "${SCRIPT_DIR}/stt-bot/element-keys.txt"
-  log "Touched stt-bot/element-keys.txt"
-fi
 
 ok "render-configs.sh complete."
