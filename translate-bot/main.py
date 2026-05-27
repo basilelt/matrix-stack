@@ -276,7 +276,7 @@ class TranslateBot:
                 path += f"&from={from_tok}"
             r = self._admin_api("GET", path, token=admin_token)
             rooms.extend(r.get("rooms", []))
-            from_tok = r.get("next_token")
+            from_tok = r.get("next_batch")
             if not from_tok:
                 break
 
@@ -336,7 +336,23 @@ class TranslateBot:
                 log.info(f"Room scan: joined {room.get('name', rid)}")
                 invited += 1
             else:
-                log.debug(f"Room scan: invite error {room.get('name', rid)}: {r.get('errcode')}: {r.get('error')}")
+                log.debug(f"Room scan: invite error {room.get('name', rid)}: {r.get('errcode')}: {r.get('error')}, trying admin force-join")
+                for attempt in range(5):
+                    r2 = self._admin_api(
+                        "POST",
+                        f"/_synapse/admin/v1/join/{enc_rid}",
+                        {"user_id": bot_id},
+                        token=admin_token,
+                    )
+                    if r2.get("errcode") == "M_LIMIT_EXCEEDED":
+                        time.sleep(r2.get("retry_after_ms", 3000) / 1000.0 + 0.5)
+                        continue
+                    break
+                if not r2.get("errcode"):
+                    log.info(f"Room scan: force-joined {room.get('name', rid)} (bridge invite failed)")
+                    invited += 1
+                else:
+                    log.debug(f"Room scan: join error {room.get('name', rid)}: {r2.get('errcode')}: {r2.get('error')}")
             time.sleep(0.5)
 
         if invited:

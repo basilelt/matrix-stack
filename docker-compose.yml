@@ -1,12 +1,28 @@
-x-watchtower-managed: &watchtower-managed
+# dock.mau.dev uses a separate JWT auth server (mau.dev/jwt/auth) that WUD cannot
+# follow anonymously. Set wud.watch=false until WUD_REGISTRY_GITLAB_MAUDEV_TOKEN is added.
+# To enable auto-update: add a mau.dev read_registry PAT to .env as MAUDEV_TOKEN,
+# then set WUD_REGISTRY_GITLAB_MAUDEV_TOKEN=${MAUDEV_TOKEN} in the wud service.
+x-wud-calver: &wud-calver
   labels:
-    com.centurylinklabs.watchtower.enable: "true"
+    wud.watch: "false"
+    wud.tag.include: '^v0\.\d{4}\.\d+$$'
+    wud.compose.file: /wud/docker-compose.yml
+
+x-wud-semver: &wud-semver
+  labels:
+    wud.watch: "false"
+    wud.tag.include: '^v\d+\.\d+\.\d+$$'
+    wud.compose.file: /wud/docker-compose.yml
+
+x-wud-off: &wud-off
+  labels:
+    wud.watch: "false"
 
 services:
 
   postgres:
     image: postgres:16-alpine
-    <<: *watchtower-managed
+    <<: *wud-off
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -25,7 +41,7 @@ services:
 
   synapse:
     image: matrixdotorg/synapse:latest
-    <<: *watchtower-managed
+    <<: *wud-off
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,7 +57,7 @@ services:
 
   caddy:
     image: caddy:2-alpine
-    <<: *watchtower-managed
+    <<: *wud-off
     depends_on:
       synapse:
         condition: service_started
@@ -54,8 +70,8 @@ services:
     restart: unless-stopped
 
   mautrix-whatsapp:
-    image: dock.mau.dev/mautrix/whatsapp:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/whatsapp:v0.2605.0
+    <<: *wud-calver
     profiles:
       - whatsapp
     depends_on:
@@ -68,8 +84,8 @@ services:
     restart: unless-stopped
 
   mautrix-telegram:
-    image: dock.mau.dev/mautrix/telegram:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/telegram:v0.2605.0
+    <<: *wud-calver
     profiles:
       - telegram
     depends_on:
@@ -82,8 +98,8 @@ services:
     restart: unless-stopped
 
   mautrix-signal:
-    image: dock.mau.dev/mautrix/signal:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/signal:v0.2605.0
+    <<: *wud-calver
     profiles:
       - signal
     depends_on:
@@ -96,8 +112,8 @@ services:
     restart: unless-stopped
 
   mautrix-discord:
-    image: dock.mau.dev/mautrix/discord:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/discord:v0.7.6
+    <<: *wud-semver
     profiles:
       - discord
     depends_on:
@@ -110,8 +126,8 @@ services:
     restart: unless-stopped
 
   mautrix-slack:
-    image: dock.mau.dev/mautrix/slack:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/slack:v0.2605.0
+    <<: *wud-calver
     profiles:
       - slack
     depends_on:
@@ -124,8 +140,8 @@ services:
     restart: unless-stopped
 
   mautrix-gmessages:
-    image: dock.mau.dev/mautrix/gmessages:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/gmessages:v0.2605.0
+    <<: *wud-calver
     profiles:
       - gmessages
     depends_on:
@@ -138,8 +154,8 @@ services:
     restart: unless-stopped
 
   mautrix-twitter:
-    image: dock.mau.dev/mautrix/twitter:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/twitter:v0.2604.0
+    <<: *wud-calver
     profiles:
       - twitter
     depends_on:
@@ -152,8 +168,8 @@ services:
     restart: unless-stopped
 
   mautrix-googlechat:
-    image: dock.mau.dev/mautrix/googlechat:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/googlechat:v0.5.2
+    <<: *wud-semver
     profiles:
       - googlechat
     depends_on:
@@ -166,8 +182,11 @@ services:
     restart: unless-stopped
 
   mautrix-linkedin:
-    image: ghcr.io/beeper/linkedin:latest
-    <<: *watchtower-managed
+    image: ghcr.io/beeper/linkedin:v0.5.4
+    labels:
+      wud.watch: "true"
+      wud.tag.include: '^v\d+\.\d+\.\d+$$'
+      wud.compose.file: /wud/docker-compose.yml
     profiles:
       - linkedin
     depends_on:
@@ -180,8 +199,8 @@ services:
     restart: unless-stopped
 
   mautrix-meta-fb:
-    image: dock.mau.dev/mautrix/meta:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/meta:v0.2605.0
+    <<: *wud-calver
     profiles:
       - meta-fb
     depends_on:
@@ -194,8 +213,8 @@ services:
     restart: unless-stopped
 
   mautrix-meta-ig:
-    image: dock.mau.dev/mautrix/meta:latest
-    <<: *watchtower-managed
+    image: dock.mau.dev/mautrix/meta:v0.2605.0
+    <<: *wud-calver
     profiles:
       - meta-ig
     depends_on:
@@ -211,8 +230,8 @@ services:
   # Running both profiles simultaneously will cause SQLite lock contention / corruption.
   # Treat stt-cpu and stt-gpu as mutually exclusive.
   matrix-stt-bot:
-    image: ghcr.io/hibobmaster/matrix-stt-bot:latest
-    <<: *watchtower-managed
+    image: ghcr.io/hibobmaster/matrix-stt-bot@sha256:4862f1472d1456c68be795c013537b166b21579a6af0ff4f8d784e6061c9dd92
+    <<: *wud-off
     profiles:
       - stt-cpu
     depends_on:
@@ -232,6 +251,7 @@ services:
       context: ./stt-bot
       dockerfile: Dockerfile.gpu
     image: matrix-stt-bot:gpu-local
+    <<: *wud-off
     profiles:
       - stt-gpu
     depends_on:
@@ -258,7 +278,7 @@ services:
 
   libretranslate:
     image: libretranslate/libretranslate:latest
-    <<: *watchtower-managed
+    <<: *wud-off
     profiles:
       - translate
     environment:
@@ -280,6 +300,7 @@ services:
       context: ./translate-bot
       dockerfile: Dockerfile
     image: matrix-translate-bot:local
+    <<: *wud-off
     profiles:
       - translate
     depends_on:
@@ -300,6 +321,7 @@ services:
       context: ./claude-notify-bot
       dockerfile: Dockerfile
     image: claude-notify-bot:local
+    <<: *wud-off
     profiles:
       - claude-notify
     depends_on:
@@ -319,6 +341,7 @@ services:
       context: ./cookie-refresher
       dockerfile: Dockerfile
     image: matrix-cookie-refresher:local
+    <<: *wud-off
     profiles:
       - cookie-refresher
     depends_on:
@@ -337,6 +360,7 @@ services:
       context: ./stickers
       dockerfile: Dockerfile
     image: matrix-sticker-importer:local
+    <<: *wud-off
     command: ["python3", "import.py"]
     profiles:
       - stickers
@@ -354,6 +378,7 @@ services:
 
   matrix-sticker-bot:
     image: matrix-sticker-importer:local
+    <<: *wud-off
     command: ["python3", "bot.py"]
     profiles:
       - stickers
@@ -368,17 +393,15 @@ services:
       TZ: ${TZ}
     restart: unless-stopped
 
-  watchtower:
-    image: containrrr/watchtower:1.7.1
-    <<: *watchtower-managed
-    environment:
-      TZ: ${TZ}
-      WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_CLEANUP: ${WATCHTOWER_CLEANUP}
-      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_INTERVAL}
-      WATCHTOWER_INCLUDE_RESTARTING: "true"
-      WATCHTOWER_NOTIFICATION_URL: ${WATCHTOWER_NOTIFICATION_URL:-}
-      DOCKER_API_VERSION: "1.47"
+  wud:
+    image: getwud/wud
+    <<: *wud-off
+    restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
+      - ./docker-compose.yml:/wud/docker-compose.yml
+    environment:
+      - WUD_WATCHER_LOCAL_CRON=0 * * * *
+      - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_FILE=/wud/docker-compose.yml
+      - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_BACKUP=true
+      - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_PRUNE=true

@@ -334,6 +334,31 @@ fi
 # 7. Render translate-bot/config.json from template
 ###############################################################################
 
+# Extract bridge as_tokens from registration files so the translate-bot config
+# can use them to invite itself via the bridge bot on behalf of the appservice.
+declare -A _bridge_token_map=(
+  [whatsapp]=BRIDGE_TOKEN_WHATSAPP
+  [telegram]=BRIDGE_TOKEN_TELEGRAM
+  [signal]=BRIDGE_TOKEN_SIGNAL
+  [discord]=BRIDGE_TOKEN_DISCORD
+  [slack]=BRIDGE_TOKEN_SLACK
+  [gmessages]=BRIDGE_TOKEN_GMESSAGES
+  [twitter]=BRIDGE_TOKEN_TWITTER
+  [googlechat]=BRIDGE_TOKEN_GOOGLECHAT
+  [linkedin]=BRIDGE_TOKEN_LINKEDIN
+  [meta-fb]=BRIDGE_TOKEN_META_FB
+  [meta-ig]=BRIDGE_TOKEN_META_IG
+)
+for _b in "${!_bridge_token_map[@]}"; do
+  _reg="${SCRIPT_DIR}/synapse/appservices/${_b}-registration.yaml"
+  _var="${_bridge_token_map[$_b]}"
+  if [[ -f "$_reg" ]] && [[ -z "${!_var:-}" ]]; then
+    _tok="$(grep '^as_token:' "$_reg" | awk '{print $2}')"
+    [[ -n "$_tok" ]] && export "${_var}=${_tok}"
+  fi
+done
+unset _b _reg _var _tok
+
 log "Rendering translate-bot/config.json..."
 TRANSLATE_BOT_TMPL="${SCRIPT_DIR}/translate-bot/config.json.tmpl"
 TRANSLATE_BOT_OUT="${SCRIPT_DIR}/translate-bot/config.json"
