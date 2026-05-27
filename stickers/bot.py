@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """matrix-sticker-bot (E2EE) — watches stickers room for .wastickers uploads, auto-imports."""
 import asyncio
+import base64
 import importlib.util
 import json
 import logging
+import secrets
 import tempfile
 from pathlib import Path
 from typing import Optional
 
+import httpx
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from nio import (
     AsyncClient, AsyncClientConfig, LoginResponse,
-    RoomMessageFile, MegolmEvent, DownloadError,
+    RoomMessageFile, RoomEncryptedFile, MegolmEvent, DownloadError,
     OlmUnverifiedDeviceError,
 )
 from nio.crypto import decrypt_attachment
@@ -29,6 +34,19 @@ STORE_DIR = Path("/app/data/store")
 SEEN_FILE = Path("/app/data/seen.json")
 SEEN_MAX = 500
 DEVICE_ID = "STICKERBOT01"
+
+
+def _b64(b: bytes) -> str:
+    return base64.b64encode(b).decode().rstrip("=")
+
+
+def _canonical_json(obj: dict) -> bytes:
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+
+
+def _sign_key(key: Ed25519PrivateKey, obj: dict) -> str:
+    stripped = {k: v for k, v in obj.items() if k not in ("signatures", "unsigned")}
+    return _b64(key.sign(_canonical_json(stripped)))
 
 
 def _load_seen() -> set:
@@ -140,8 +158,9 @@ class StickerBot:
                 tmp_path = Path(tmp.name)
 
             token = self.client.access_token
+            display_name = Path(body).stem
             result = await asyncio.get_event_loop().run_in_executor(
-                None, import_pack, self.cfg, token, tmp_path
+                None, import_pack, self.cfg, token, tmp_path, display_name
             )
             tmp_path.unlink(missing_ok=True)
 
@@ -174,13 +193,116 @@ class StickerBot:
         if room.room_id == self.room_id:
             LOG.warning("Undecryptable event %s — missing Megolm session key", event.event_id)
 
+    async def _setup_cross_signing(self) -> None:
+        try:
+            keys_file = STORE_DIR / "cross_signing_keys.json"
+            if keys_file.exists():
+                saved = json.loads(keys_file.read_text())
+                msk_seed = bytes.fromhex(saved["msk"])
+                ssk_seed = bytes.fromhex(saved["ssk"])
+            else:
+                msk_seed = secrets.token_bytes(32)
+                ssk_seed = secrets.token_bytes(32)
+                keys_file.write_text(json.dumps({"msk": msk_seed.hex(), "ssk": ssk_seed.hex()}))
+                LOG.info("Generated new cross-signing seeds")
+
+            msk = Ed25519PrivateKey.from_private_bytes(msk_seed)
+            ssk = Ed25519PrivateKey.from_private_bytes(ssk_seed)
+            raw, enc = PublicFormat.Raw, Encoding.Raw
+            msk_pub = _b64(msk.public_key().public_bytes(enc, raw))
+            ssk_pub = _b64(ssk.public_key().public_bytes(enc, raw))
+            msk_key_id = f"ed25519:{msk_pub}"
+            ssk_key_id = f"ed25519:{ssk_pub}"
+            user_id = self.client.user_id
+            device_id = self.client.device_id
+            hdrs = {"Authorization": f"Bearer {self.client.access_token}"}
+
+            async with httpx.AsyncClient() as http:
+                r = await http.post(f"{self.hs}/_matrix/client/v3/keys/query",
+                                    json={"device_keys": {user_id: []}}, headers=hdrs)
+                keys_resp = r.json()
+
+                server_msk = keys_resp.get("master_keys", {}).get(user_id, {}).get("keys", {})
+                if msk_pub not in server_msk.values():
+                    LOG.info("Uploading cross-signing keys")
+                    msk_obj = {"keys": {msk_key_id: msk_pub}, "usage": ["master"], "user_id": user_id}
+                    msk_obj["signatures"] = {user_id: {msk_key_id: _sign_key(msk, msk_obj)}}
+                    ssk_obj = {"keys": {ssk_key_id: ssk_pub}, "usage": ["self_signing"], "user_id": user_id}
+                    ssk_obj["signatures"] = {user_id: {msk_key_id: _sign_key(msk, ssk_obj)}}
+                    payload = {"master_key": msk_obj, "self_signing_key": ssk_obj}
+                    upload_url = f"{self.hs}/_matrix/client/v3/keys/device_signing/upload"
+
+                    r = await http.post(upload_url, json=payload, headers=hdrs)
+                    if r.status_code == 401:
+                        uiaa = r.json()
+                        auth_payload = {**payload, "auth": {
+                            "type": "m.login.password",
+                            "identifier": {"type": "m.id.user", "user": self.cfg["stickers_user"]},
+                            "password": self.cfg["stickers_password"],
+                            "session": uiaa.get("session", ""),
+                        }}
+                        r = await http.post(upload_url, json=auth_payload, headers=hdrs)
+                        if r.status_code != 200:
+                            LOG.error("Cross-signing upload failed %d: %s", r.status_code, r.text)
+                            return
+                    elif r.status_code != 200:
+                        LOG.error("Cross-signing upload failed %d: %s", r.status_code, r.text)
+                        return
+                    LOG.info("Cross-signing keys uploaded")
+
+                    r = await http.post(f"{self.hs}/_matrix/client/v3/keys/query",
+                                        json={"device_keys": {user_id: []}}, headers=hdrs)
+                    keys_resp = r.json()
+
+                device_key = keys_resp.get("device_keys", {}).get(user_id, {}).get(device_id)
+                if not device_key:
+                    LOG.warning("Own device key not found — skipping device signing")
+                    return
+                if ssk_key_id in device_key.get("signatures", {}).get(user_id, {}):
+                    LOG.info("Device already signed by SSK")
+                    return
+
+                LOG.info("Signing device %s with SSK", device_id)
+                sigs = {k: dict(v) for k, v in device_key.get("signatures", {}).items()}
+                sigs.setdefault(user_id, {})[ssk_key_id] = _sign_key(ssk, device_key)
+                signed_device = {**device_key, "signatures": sigs}
+                r = await http.post(f"{self.hs}/_matrix/client/v3/keys/signatures/upload",
+                                    json={user_id: {device_id: signed_device}}, headers=hdrs)
+                if r.status_code != 200:
+                    LOG.error("signatures/upload failed %d: %s", r.status_code, r.text)
+                    return
+                LOG.info("Device %s signed by SSK — cross-signing complete", device_id)
+
+        except Exception:
+            LOG.exception("Cross-signing setup failed — continuing without it")
+
+    async def _catchup_initial_timeline(self, sync_resp) -> None:
+        """Process file events from the initial sync timeline (handles offline period)."""
+        try:
+            room_data = sync_resp.rooms.join.get(self.room_id)
+            if not room_data:
+                return
+            for event in room_data.timeline.events:
+                if isinstance(event, (RoomMessageFile, RoomEncryptedFile)):
+                    content = event.source.get("content", {})
+                    file_info = content.get("file")
+                    mxc = file_info["url"] if file_info else event.url
+                    asyncio.create_task(self._process(event.event_id, event.body, mxc, file_info))
+                elif isinstance(event, MegolmEvent):
+                    LOG.warning("Undecryptable event %s in catchup — re-send the file to import it", event.event_id)
+        except Exception as exc:
+            LOG.warning("Could not process initial timeline: %s", exc)
+
     async def start(self) -> None:
         await self._login()
         # Initial sync to populate room state, then trust devices
-        await self.client.sync(timeout=10_000, full_state=True)
+        sync_resp = await self.client.sync(timeout=10_000, full_state=True)
         self._trust_room_devices()
+        await self._setup_cross_signing()
+        await self._catchup_initial_timeline(sync_resp)
 
         self.client.add_event_callback(self._on_file, RoomMessageFile)
+        self.client.add_event_callback(self._on_file, RoomEncryptedFile)
         self.client.add_event_callback(self._on_megolm, MegolmEvent)
 
         LOG.info("Watching room %s (E2EE)", self.room_id)

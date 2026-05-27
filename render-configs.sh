@@ -170,7 +170,7 @@ cfg = {
     "log_config": "/data/log.config",
     "app_service_config_files": appservice_files,
     "report_stats": False,
-    "signing_key_path": "/data/matrix.example.com.signing.key",
+    "signing_key_path": f"/data/{matrix_domain}.signing.key",
     "trusted_key_servers": [{"server_name": "matrix.org"}],
     "suppress_key_server_warning": True,
     "experimental_features": {"msc2716_enabled": True, "msc4190_enabled": True},

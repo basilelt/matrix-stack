@@ -395,6 +395,40 @@ DPPY
         -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
       log "Building sticker-importer image..."
       docker compose --profile stickers build matrix-sticker-importer
+
+      # ── Set sticker picker widget for MATRIX_USER (idempotent) ──────────────
+      log "Configuring sticker picker widget for @${MATRIX_USER}:${MATRIX_DOMAIN}..."
+      _stk_admin_token=$(curl -sf -X POST "http://localhost:8008/_matrix/client/v3/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"${SYNAPSE_ADMIN_USER}\"},\"password\":\"${SYNAPSE_ADMIN_PASSWORD}\"}" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true
+
+      if [[ -n "$_stk_admin_token" ]]; then
+        _stk_user_token=$(curl -sf -X POST \
+          "http://localhost:8008/_synapse/admin/v1/users/@${MATRIX_USER}:${MATRIX_DOMAIN}/login" \
+          -H "Authorization: Bearer $_stk_admin_token" \
+          -H "Content-Type: application/json" -d '{}' \
+          | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true
+
+        if [[ -n "$_stk_user_token" ]]; then
+          _stk_user_enc=$(python3 -c "import urllib.parse; print(urllib.parse.quote('@${MATRIX_USER}:${MATRIX_DOMAIN}', safe=''))")
+          _stk_widget_body=$(python3 - <<PYEOF
+import json
+domain = "${PUBLIC_DOMAIN:-$MATRIX_DOMAIN}"
+user = "@${MATRIX_USER}:${MATRIX_DOMAIN}"
+url = "https://{}/stickerpicker/?theme=\$theme".format(domain)
+print(json.dumps({"stickerpicker":{"content":{"type":"m.stickerpicker","url":url,"name":"Sticker Picker","data":{}},"id":"stickerpicker","sender":user,"state_key":"stickerpicker","type":"m.widget","origin_server_ts":0,"event_id":"\$stickerpicker"}}})
+PYEOF
+)
+          curl -sf -X PUT \
+            "http://localhost:8008/_matrix/client/v3/user/${_stk_user_enc}/account_data/m.widgets" \
+            -H "Authorization: Bearer $_stk_user_token" \
+            -H "Content-Type: application/json" \
+            -d "$_stk_widget_body" >/dev/null \
+            && ok "Sticker picker widget configured for @${MATRIX_USER}:${MATRIX_DOMAIN}." \
+            || warn "Could not set sticker picker widget — set it manually in Element Settings → Sticker Picker."
+        fi
+      fi
     fi
 
     # ── 14d. Wire Favorites space ↔ stickers room (bidirectional, idempotent) ─

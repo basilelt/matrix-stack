@@ -97,12 +97,12 @@ def ext_to_mime(ext: str) -> str:
             "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(ext.lstrip("."), "image/webp")
 
 
-def read_wastickers(path: Path) -> tuple[str, str, list[tuple[str, bytes, str]]]:
+def read_wastickers(path: Path, display_name: str = "") -> tuple[str, str, list[tuple[str, bytes, str]]]:
     """Returns (pack_id, pack_title, [(stem, data, mimetype), ...])."""
     with zipfile.ZipFile(path) as zf:
         names = zf.namelist()
-        pack_title = path.stem
-        identifier = path.stem
+        pack_title = display_name or path.stem
+        identifier = display_name or path.stem
         if "metadata.json" in names:
             try:
                 meta = json.loads(zf.read("metadata.json"))
@@ -175,12 +175,12 @@ def put_state_event(hs: str, token: str, room_id: str, pack_id: str,
     print(f"  MSC2545 state event written: im.ponies.room_emotes/{pack_id}")
 
 
-def import_pack(cfg: dict, token: str, path: Path) -> None:
+def import_pack(cfg: dict, token: str, path: Path, display_name: str = "") -> None:
     hs = cfg["homeserver_url"].rstrip("/")
     room_id = cfg["stickers_room_id"]
 
     if path.suffix.lower() == ".wastickers":
-        pack_id, pack_title, raw = read_wastickers(path)
+        pack_id, pack_title, raw = read_wastickers(path, display_name)
     elif path.is_dir():
         pack_id, pack_title, raw = read_folder(path)
     else:
