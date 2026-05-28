@@ -70,7 +70,7 @@ content = textwrap.dedent("""\
         header Access-Control-Allow-Origin *
         respond `{{"fi.mau.bridges":["https://{matrix_domain}/_matrix/provision"]}}` 200
     }}
-    handle /_matrix/provision/* {{
+    handle /_matrix/provision* {{
         reverse_proxy mautrix-gmessages:29336 {{
             header_up X-Forwarded-For {{remote_host}}
             header_up X-Forwarded-Proto https
