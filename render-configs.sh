@@ -68,13 +68,40 @@ content = textwrap.dedent("""\
     handle /.well-known/matrix/mautrix {{
         header Content-Type application/json
         header Access-Control-Allow-Origin *
-        respond `{{"fi.mau.bridges":["https://{matrix_domain}"]}}` 200
+        respond `{{"fi.mau.bridges":["https://{matrix_domain}/bridge/discord","https://{matrix_domain}/bridge/gmessages","https://{matrix_domain}/bridge/googlechat","https://{matrix_domain}/bridge/linkedin","https://{matrix_domain}/bridge/meta-fb","https://{matrix_domain}/bridge/meta-ig","https://{matrix_domain}/bridge/signal","https://{matrix_domain}/bridge/slack","https://{matrix_domain}/bridge/telegram","https://{matrix_domain}/bridge/twitter","https://{matrix_domain}/bridge/whatsapp"]}}` 200
     }}
-    handle /_matrix/provision* {{
-        reverse_proxy mautrix-gmessages:29336 {{
-            header_up X-Forwarded-For {{remote_host}}
-            header_up X-Forwarded-Proto https
-        }}
+    handle_path /bridge/discord/* {{
+        reverse_proxy mautrix-discord:29334
+    }}
+    handle_path /bridge/gmessages/* {{
+        reverse_proxy mautrix-gmessages:29336
+    }}
+    handle_path /bridge/googlechat/* {{
+        reverse_proxy mautrix-googlechat:29338
+    }}
+    handle_path /bridge/linkedin/* {{
+        reverse_proxy mautrix-linkedin:29341
+    }}
+    handle_path /bridge/meta-fb/* {{
+        reverse_proxy mautrix-meta-fb:29340
+    }}
+    handle_path /bridge/meta-ig/* {{
+        reverse_proxy mautrix-meta-ig:29341
+    }}
+    handle_path /bridge/signal/* {{
+        reverse_proxy mautrix-signal:29328
+    }}
+    handle_path /bridge/slack/* {{
+        reverse_proxy mautrix-slack:29335
+    }}
+    handle_path /bridge/telegram/* {{
+        reverse_proxy mautrix-telegram:29317
+    }}
+    handle_path /bridge/twitter/* {{
+        reverse_proxy mautrix-twitter:29337
+    }}
+    handle_path /bridge/whatsapp/* {{
+        reverse_proxy mautrix-whatsapp:29318
     }}
     handle /_matrix/* {{
         reverse_proxy synapse:8008 {{
