@@ -65,6 +65,17 @@ content = textwrap.dedent("""\
         header Access-Control-Allow-Origin *
         respond `{{"m.homeserver":{{"base_url":"https://{matrix_domain}"}},"m.identity_server":{{"base_url":"https://vector.im"}}}}` 200
     }}
+    handle /.well-known/matrix/mautrix {{
+        header Content-Type application/json
+        header Access-Control-Allow-Origin *
+        respond `{{"fi.mau.bridges":["https://{matrix_domain}/_matrix/provision"]}}` 200
+    }}
+    handle /_matrix/provision/* {{
+        reverse_proxy mautrix-gmessages:29336 {{
+            header_up X-Forwarded-For {{remote_host}}
+            header_up X-Forwarded-Proto https
+        }}
+    }}
     handle /_matrix/* {{
         reverse_proxy synapse:8008 {{
             header_up X-Forwarded-For {{remote_host}}

@@ -4,7 +4,7 @@
 # then set WUD_REGISTRY_GITLAB_MAUDEV_TOKEN=${MAUDEV_TOKEN} in the wud service.
 x-wud-calver: &wud-calver
   labels:
-    wud.watch: "false"
+    wud.watch: "true"
     wud.tag.include: '^v0\.\d{4}\.\d+$$'
     wud.compose.file: /wud/docker-compose.yml
 
@@ -355,3 +355,4 @@ services:
       - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_FILE=/wud/docker-compose.yml
       - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_BACKUP=true
       - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_PRUNE=true
+      - WUD_REGISTRY_GITLAB_MAUDEV_TOKEN=${MAUDEV_TOKEN}
