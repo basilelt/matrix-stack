@@ -68,7 +68,7 @@ content = textwrap.dedent("""\
     handle /.well-known/matrix/mautrix {{
         header Content-Type application/json
         header Access-Control-Allow-Origin *
-        respond `{{"fi.mau.bridges":["https://{matrix_domain}/_matrix/provision"]}}` 200
+        respond `{{"fi.mau.bridges":["https://{matrix_domain}"]}}` 200
     }}
     handle /_matrix/provision* {{
         reverse_proxy mautrix-gmessages:29336 {{
