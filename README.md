@@ -181,3 +181,59 @@ curl -s -X POST https://notify.example.com/notify \
 - [ ] Each bridge bot responds to `help` in DM
 - [ ] `ssh root@YOUR_LXC_IP "systemctl list-timers | grep auto-update"`
 - [ ] `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose logs wud"`
+
+## Gotchas / Lessons
+
+### Signal bridge: group messages fail — "missing sender key state" (error 80)
+
+**Symptom:** Sending a message from Matrix into a Signal group fails. The bridge bot
+posts:
+> ⚠️ Your message may not have been bridged: failed to encrypt group message:
+> 80: missing sender key state for distribution ID `<uuid>`
+
+Logs also show `"Reusing existing sender key"` immediately before the error — so the
+bridge never regenerates the key.
+
+**Cause:** The bridge (mautrix-signal / signalmeow) re-linked to Signal, which assigned
+a new `device_id`. The sender-key tracking table
+(`signalmeow_outbound_sender_key_info`) is keyed by `(account_id, group_id)` only —
+no device column — so it still points at a `distribution_id` whose
+`SenderKeyRecord` was stored under the **old** device id. At encrypt time signalmeow
+looks up the own sender key under the **current** device, finds nothing, and fails.
+Because the tracking row says "already shared", the bridge loops forever without
+regenerating.
+
+**Fix** (run on the LXC, DB = `synapse_signal`):
+
+```bash
+# 1. Stop the bridge (prevent in-memory cache from re-writing the row)
+docker compose stop mautrix-signal
+
+# 2. Delete the stale outbound sender-key info for the affected group
+#    (do NOT touch signalmeow_sender_keys — inbound keys from members live there)
+docker compose exec -T postgres psql -U postgres -d synapse_signal -c "
+  DELETE FROM signalmeow_outbound_sender_key_info
+  WHERE account_id = '<your-aci-uuid>'
+    AND group_id = '<group-id-from-logs>';
+"
+
+# 3. Restart the bridge — it will generate a fresh distribution_id on the next send
+docker compose start mautrix-signal
+```
+
+**Verify:** Send a real message into the group from Matrix, then check:
+```bash
+docker compose logs --tail=60 mautrix-signal | grep -iE "sender key|distribut|encrypt|error"
+```
+A **new** `distribution_id` (≠ the old one) should appear, SenderKeyDistributionMessages
+go out to members, and the message delivers without error.
+
+**Escalation** (only if regeneration still doesn't happen): also delete the orphaned
+own `SenderKeyRecord`:
+```sql
+DELETE FROM signalmeow_sender_keys
+WHERE account_id = '<aci-uuid>'
+  AND sender_uuid = '<aci-uuid>'
+  AND distribution_id = '<old-distribution-id>';
+```
+Then restart and retest.
