@@ -1,7 +1,7 @@
-# dock.mau.dev uses a separate JWT auth server (mau.dev/jwt/auth) that WUD cannot
-# follow anonymously. Set wud.watch=false until WUD_REGISTRY_GITLAB_MAUDEV_TOKEN is added.
-# To enable auto-update: add a mau.dev read_registry PAT to .env as MAUDEV_TOKEN,
-# then set WUD_REGISTRY_GITLAB_MAUDEV_TOKEN=${MAUDEV_TOKEN} in the wud service.
+# dock.mau.dev is a self-hosted GitLab container registry with a separate JWT auth server.
+# WUD requires two vars: _URL = registry host (images), _AUTHURL = GitLab auth host (JWT).
+# Add a mau.dev read_registry PAT to .env as MAUDEV_TOKEN to enable authenticated pulls.
+# Without the correct URL/AUTHURL split, all mautrix images error "Unsupported Registry unknown".
 x-wud-calver: &wud-calver
   labels:
     wud.watch: "true"
@@ -355,5 +355,6 @@ services:
       - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_FILE=/wud/docker-compose.yml
       - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_BACKUP=true
       - WUD_TRIGGER_DOCKERCOMPOSE_LOCAL_PRUNE=true
-      - WUD_REGISTRY_GITLAB_MAUDEV_URL=https://mau.dev
+      - WUD_REGISTRY_GITLAB_MAUDEV_URL=https://dock.mau.dev
+      - WUD_REGISTRY_GITLAB_MAUDEV_AUTHURL=https://mau.dev
       - WUD_REGISTRY_GITLAB_MAUDEV_TOKEN=${MAUDEV_TOKEN}

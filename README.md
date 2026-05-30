@@ -271,5 +271,8 @@ docker compose logs -f --since 1m mautrix-meta-ig 2>&1 | grep -iE "connect|sync|
 ```
 Send a test IG DM from Matrix and confirm delivery both ways.
 
-**Note:** WUD may not flag this update because its calver transform only tracks `YYMM` and
-ignores `.N` patch releases. Check `mautrix/meta` releases manually after a Meta outage.
+**Note:** WUD may not flag this update if the registry config is wrong. The correct config
+requires `WUD_REGISTRY_GITLAB_MAUDEV_URL=https://dock.mau.dev` (registry host) **and**
+`WUD_REGISTRY_GITLAB_MAUDEV_AUTHURL=https://mau.dev` (JWT auth host). Without `_AUTHURL`,
+WUD logs `Unsupported Registry unknown` for all mautrix images every cron and never checks tags.
+The tag regex `^v0\.\d{4}\.\d+$` already matches patch releases like `v0.2605.1`.
