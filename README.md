@@ -237,3 +237,39 @@ WHERE account_id = '<aci-uuid>'
   AND distribution_id = '<old-distribution-id>';
 ```
 Then restart and retest.
+
+### Instagram bridge: TRANSIENT_DISCONNECT / "failed to send sync tasks: timeout waiting for response"
+
+**Symptom:** The Instagram bridge shows **TRANSIENT_DISCONNECT** in mautrix-manager and loops
+in the logs:
+```
+Failed to handle connect ack: "failed to send sync tasks: timeout waiting for response"
+Error reading message from socket: "use of closed network connection"
+Error in connection, reconnecting   (backoff 2s → 4s → … → 300s)
+```
+Re-logging with fresh cookies does not help. The Facebook bridge (same image) continues to work.
+
+**Cause:** Meta changed the Instagram app ID in the MQTT layer. The old bridge image has the
+stale hardcoded ID — MQTT connects but sync tasks receive no ack → timeout → socket closed →
+TRANSIENT_DISCONNECT loop. Because FB uses a different app ID, it is unaffected.
+
+**Fix:** Bump the `mautrix/meta` image to the patch release that contains the corrected app ID
+(v26.05.1 = `v0.2605.1`). Then pull and recreate the two meta services:
+
+```bash
+cd /opt/matrix-stack
+# 1. Edit docker-compose.yml: change both meta lines to the new tag, e.g. v0.2605.1
+# 2. Pull + recreate (session cookies persist in the bridge volume — no re-login needed)
+docker compose pull mautrix-meta-fb mautrix-meta-ig
+docker compose up -d mautrix-meta-fb mautrix-meta-ig
+```
+
+**Verify:** Watch logs for ≥5 min — the `failed to send sync tasks` → `reconnecting` loop must
+be **absent**, and a successful connected/sync line must appear:
+```bash
+docker compose logs -f --since 1m mautrix-meta-ig 2>&1 | grep -iE "connect|sync|error"
+```
+Send a test IG DM from Matrix and confirm delivery both ways.
+
+**Note:** WUD may not flag this update because its calver transform only tracks `YYMM` and
+ignores `.N` patch releases. Check `mautrix/meta` releases manually after a Meta outage.

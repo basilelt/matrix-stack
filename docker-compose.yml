@@ -199,7 +199,7 @@ services:
     restart: unless-stopped
 
   mautrix-meta-fb:
-    image: dock.mau.dev/mautrix/meta:v0.2605.0
+    image: dock.mau.dev/mautrix/meta:v0.2605.1
     <<: *wud-calver
     profiles:
       - meta-fb
@@ -213,7 +213,7 @@ services:
     restart: unless-stopped
 
   mautrix-meta-ig:
-    image: dock.mau.dev/mautrix/meta:v0.2605.0
+    image: dock.mau.dev/mautrix/meta:v0.2605.1
     <<: *wud-calver
     profiles:
       - meta-ig
