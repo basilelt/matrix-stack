@@ -40,6 +40,8 @@ bridge:
   username_template: "signal_{{.UUID}}"
   displayname_template: "{{.Name}} (Signal)"
   personal_filtering_spaces: false
+  # Don't kick Matrix users (e.g. translate-bot) who aren't in the remote chat.
+  kick_matrix_users: false
   delivery_receipts: false
   send_presence_on_typing: false
   convert_voice_messages: false

@@ -40,6 +40,8 @@ bridge:
   username_template: "gmessages_{{.}}"
   displayname_template: "{{.}} (GMessages)"
   personal_filtering_spaces: true
+  # Don't kick Matrix users (e.g. translate-bot) who aren't in the remote chat.
+  kick_matrix_users: false
   delivery_receipts: false
   send_presence_on_typing: false
   portal_message_buffer: 128

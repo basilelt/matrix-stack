@@ -8,6 +8,8 @@ network:
 bridge:
   command_prefix: "!fb"
   personal_filtering_spaces: true
+  # Don't kick Matrix users (e.g. translate-bot) who aren't in the remote chat.
+  kick_matrix_users: false
   relay:
     enabled: false
     admin_only: true

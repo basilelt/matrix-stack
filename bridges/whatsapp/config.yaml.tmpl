@@ -41,6 +41,8 @@ bridge:
   username_template: "whatsapp_{{.User}}"
   displayname_template: "{{if .BusinessName}}{{.BusinessName}}{{else}}{{.PushName}}{{end}} (WA)"
   personal_filtering_spaces: false
+  # Don't kick Matrix users (e.g. translate-bot) who aren't in the remote chat.
+  kick_matrix_users: false
   delivery_receipts: false
   send_presence_on_typing: false
   convert_voice_messages: false
