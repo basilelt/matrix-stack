@@ -53,24 +53,84 @@ logging.basicConfig(
 log = logging.getLogger("translate-bot")
 log.setLevel(logging.DEBUG)
 
-FLAG_TO_LANG: dict[str, str] = {
-    "🇫🇷": "fr",
-    "🇬🇧": "en", "🇺🇸": "en",
-    "🇪🇸": "es", "🇦🇷": "es",
-    "🇩🇪": "de",
-    "🇵🇹": "pt", "🇧🇷": "pt",
-    "🇮🇹": "it",
-    "🇯🇵": "ja",
-    "🇨🇳": "zh",
-    "🇷🇺": "ru",
-    "🇸🇦": "ar",
-    "🇳🇱": "nl",
-    "🇹🇷": "tr",
-    "🇰🇷": "ko",
-    "🇵🇱": "pl",
-    "🇺🇦": "uk",
-    "🇸🇪": "sv",
+# ISO-3166-1 alpha-2 country code → primary ISO-639-1 language code.
+# Generated programmatically — covers every country/territory flag.
+# CP (Clipperton, renders as French tricolore) and UM (US Minor Outlying Islands)
+# are included explicitly because clients send them instead of FR/US.
+_COUNTRY_TO_LANG: dict[str, str] = {
+    "AC": "en", "AD": "ca", "AE": "ar", "AF": "fa", "AG": "en",
+    "AI": "en", "AL": "sq", "AM": "hy", "AO": "pt", "AQ": "en",
+    "AR": "es", "AS": "en", "AT": "de", "AU": "en", "AW": "nl",
+    "AX": "sv", "AZ": "az", "BA": "bs", "BB": "en", "BD": "bn",
+    "BE": "nl", "BF": "fr", "BG": "bg", "BH": "ar", "BI": "fr",
+    "BJ": "fr", "BL": "fr", "BM": "en", "BN": "ms", "BO": "es",
+    "BQ": "nl", "BR": "pt", "BS": "en", "BT": "dz", "BV": "no",
+    "BW": "en", "BY": "ru", "BZ": "en", "CA": "en", "CC": "en",
+    "CD": "fr", "CF": "fr", "CG": "fr", "CH": "de", "CI": "fr",
+    "CK": "en", "CL": "es", "CM": "fr", "CN": "zh-Hans",
+    "CO": "es", "CP": "fr", "CR": "es", "CU": "es", "CV": "pt",
+    "CW": "nl", "CX": "en", "CY": "el", "CZ": "cs", "DE": "de",
+    "DG": "en", "DJ": "fr", "DK": "da", "DM": "en", "DO": "es",
+    "DZ": "ar", "EA": "es", "EC": "es", "EE": "et", "EG": "ar",
+    "EH": "ar", "ER": "ti", "ES": "es", "ET": "am", "EU": "en",
+    "FI": "fi", "FJ": "en", "FK": "en", "FM": "en", "FO": "fo",
+    "FR": "fr", "GA": "fr", "GB": "en", "GD": "en", "GE": "ka",
+    "GF": "fr", "GG": "en", "GH": "en", "GI": "en", "GL": "kl",
+    "GM": "en", "GN": "fr", "GP": "fr", "GQ": "es", "GR": "el",
+    "GS": "en", "GT": "es", "GU": "en", "GW": "pt", "GY": "en",
+    "HK": "zh-Hans", "HM": "en", "HN": "es", "HR": "hr", "HT": "fr",
+    "HU": "hu", "IC": "es", "ID": "id", "IE": "en", "IL": "he",
+    "IM": "en", "IN": "hi", "IO": "en", "IQ": "ar", "IR": "fa",
+    "IS": "is", "IT": "it", "JE": "en", "JM": "en", "JO": "ar",
+    "JP": "ja", "KE": "sw", "KG": "ky", "KH": "km", "KI": "en",
+    "KM": "ar", "KN": "en", "KP": "ko", "KR": "ko", "KW": "ar",
+    "KY": "en", "KZ": "kk", "LA": "lo", "LB": "ar", "LC": "en",
+    "LI": "de", "LK": "si", "LR": "en", "LS": "st", "LT": "lt",
+    "LU": "fr", "LV": "lv", "LY": "ar", "MA": "ar", "MC": "fr",
+    "MD": "ro", "ME": "sr", "MF": "fr", "MG": "fr", "MH": "en",
+    "MK": "mk", "ML": "fr", "MM": "my", "MN": "mn", "MO": "zh-Hans",
+    "MP": "en", "MQ": "fr", "MR": "ar", "MS": "en", "MT": "mt",
+    "MU": "fr", "MV": "dv", "MW": "en", "MX": "es", "MY": "ms",
+    "MZ": "pt", "NA": "en", "NC": "fr", "NE": "fr", "NF": "en",
+    "NG": "en", "NI": "es", "NL": "nl", "NO": "no", "NP": "ne",
+    "NR": "en", "NU": "en", "NZ": "en", "OM": "ar", "PA": "es",
+    "PE": "es", "PF": "fr", "PG": "en", "PH": "tl", "PK": "ur",
+    "PL": "pl", "PM": "fr", "PN": "en", "PR": "es", "PS": "ar",
+    "PT": "pt", "PW": "en", "PY": "es", "QA": "ar", "RE": "fr",
+    "RO": "ro", "RS": "sr", "RU": "ru", "RW": "rw", "SA": "ar",
+    "SB": "en", "SC": "fr", "SD": "ar", "SE": "sv", "SG": "en",
+    "SH": "en", "SI": "sl", "SJ": "no", "SK": "sk", "SL": "en",
+    "SM": "it", "SN": "fr", "SO": "so", "SR": "nl", "SS": "en",
+    "ST": "pt", "SV": "es", "SX": "nl", "SY": "ar", "SZ": "en",
+    "TA": "en", "TC": "en", "TD": "fr", "TF": "fr", "TG": "fr",
+    "TH": "th", "TJ": "tg", "TK": "en", "TL": "pt", "TM": "tk",
+    "TN": "ar", "TO": "en", "TR": "tr", "TT": "en", "TV": "en",
+    "TW": "zh-Hans", "TZ": "sw", "UA": "uk", "UG": "en", "UM": "en",
+    "UN": "en", "US": "en", "UY": "es", "UZ": "uz", "VA": "it",
+    "VC": "en", "VE": "es", "VG": "en", "VI": "en", "VN": "vi",
+    "VU": "fr", "WF": "fr", "WS": "sm", "XK": "sq", "YE": "ar",
+    "YT": "fr", "ZA": "af", "ZM": "en", "ZW": "en",
 }
+
+
+def _country_to_flag(code: str) -> str:
+    """Convert ISO-3166 alpha-2 code to Regional Indicator emoji pair."""
+    return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in code.upper())
+
+
+# Comprehensive flag emoji → language map, generated from _COUNTRY_TO_LANG.
+FLAG_TO_LANG: dict[str, str] = {
+    _country_to_flag(code): lang
+    for code, lang in _COUNTRY_TO_LANG.items()
+}
+
+
+def _is_flag_emoji(emoji: str) -> bool:
+    """Return True if emoji is a pair of Regional Indicator symbols (any country flag)."""
+    chars = [c for c in emoji if ord(c) != 0xFE0F]  # strip variation selector U+FE0F
+    return len(chars) == 2 and all(0x1F1E6 <= ord(c) <= 0x1F1FF for c in chars)
+
+
 STT_EMOJIS = {"🎙️", "🎙", "🎤", "🎤️"}  # studio mic + plain mic, with/without variation selector
 MAX_CACHED_EVENTS_PER_ROOM = 500
 MAX_DONE = 1000  # max completed-operation dedup entries
@@ -197,6 +257,11 @@ class TranslateBot:
         # as two distinct events (e.g. Element native + WA puppet echo)
         self._done: OrderedDict = OrderedDict()
 
+        # Languages actually loaded in LibreTranslate — populated in start().
+        # Default covers the standard LT_LOAD_ONLY set so the bot works even if
+        # the /languages fetch fails before the first translate attempt.
+        self.lt_targets: set[str] = {"en", "fr", "es", "de", "pt", "it", "ar", "zh-Hans", "ja"}
+
     def _cache_put(self, room_id, event_id, body, msgtype, mxc=None, file=None):
         room_cache = self._cache[room_id]
         room_cache[event_id] = {"body": body, "msgtype": msgtype, "mxc": mxc, "file": file}
@@ -222,6 +287,19 @@ class TranslateBot:
             log.error(f"Login failed: {resp}")
             return
         log.info(f"Logged in as {self.cfg['user_id']}")
+
+        # Fetch the languages actually loaded in LibreTranslate so we can give
+        # a clear error instead of silently failing for unloaded languages.
+        try:
+            async with httpx.AsyncClient(timeout=10) as hc:
+                r = await hc.get(f"{self.lt_url}/languages")
+                if r.status_code == 200:
+                    self.lt_targets = {lang["code"] for lang in r.json()}
+                    log.info(f"LibreTranslate languages available: {sorted(self.lt_targets)}")
+                else:
+                    log.warning(f"Could not fetch LibreTranslate languages (HTTP {r.status_code}), using defaults")
+        except Exception as e:
+            log.warning(f"Could not fetch LibreTranslate languages: {e}, using defaults")
 
         if self.client.should_upload_keys:
             await self.client.keys_upload()
@@ -601,6 +679,9 @@ class TranslateBot:
         is_stt = emoji in STT_EMOJIS
         log.info(f"Reaction from {event.sender}: {emoji!r} → target {target_id} | flag={is_flag} stt={is_stt}")
         if not is_flag and not is_stt:
+            if _is_flag_emoji(emoji):
+                await self._reply(room.room_id, target_id,
+                                  "⚠️ Flag not recognized — no language mapping for this territory.")
             return
 
         # Redact the trigger reaction so it doesn't get bridged to WhatsApp/Signal
@@ -739,6 +820,13 @@ class TranslateBot:
             return
         if cached["msgtype"] not in ("m.text", "m.notice", "m.emote"):
             await self._reply(room_id, target_id, "❌ Can only translate text messages.")
+            return
+        if not lang:
+            await self._reply(room_id, target_id, "❌ Unknown target language.")
+            return
+        if lang not in self.lt_targets:
+            await self._reply(room_id, target_id,
+                              f"⚠️ Translation to \"{lang}\" isn't available — language not loaded in LibreTranslate.")
             return
         log.info(f"Translating → {lang}: {cached['body'][:60]!r}")
         result = await call_libretranslate(cached["body"], lang, self.lt_url)
