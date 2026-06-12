@@ -286,25 +286,6 @@ services:
       TZ: ${TZ}
     restart: unless-stopped
 
-  cookie-refresher:
-    build:
-      context: ./cookie-refresher
-      dockerfile: Dockerfile
-    image: matrix-cookie-refresher:local
-    <<: *wud-off
-    profiles:
-      - cookie-refresher
-    depends_on:
-      synapse:
-        condition: service_started
-    volumes:
-      - ./cookie-refresher/config.json:/app/config.json:ro
-      - ./cookie-refresher/data:/app/data
-    environment:
-      TZ: ${TZ}
-      COOKIE_REFRESHER_KEY: ${COOKIE_REFRESHER_KEY:-}
-    restart: unless-stopped
-
   matrix-sticker-importer:
     build:
       context: ./stickers

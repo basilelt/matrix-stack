@@ -45,6 +45,54 @@ Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_LXC_IP:8080 → 
 | Stop stack | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose down"` |
 | Register a new user | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && ./setup.sh register-user"` |
 
+## Bridge disconnects / re-login
+
+Bridges that use browser session auth (Messenger, Discord) **will be revoked periodically** — this
+is inherent, not a misconfiguration. Auto-refresh from the server is intentionally not done:
+a Playwright headless sidecar was built and removed because Facebook blocks headless logins from
+datacenter IPs, and Discord ToS invalidates user tokens. Re-auth always comes from your real browser.
+
+### Discord — `4004 Authentication failed` / silent no messages
+
+Symptom: `Got logged out from Discord due to invalid token` in logs; bridge appears up but
+delivers nothing.
+
+```bash
+# 1. Restart
+ssh -i ~/.ssh/id_rsa root@YOUR_LXC_IP 'cd /opt/matrix-stack && docker compose restart mautrix-discord'
+# 2. Get a fresh token (private browser window → Discord web app → F12 → Network → filter "api"
+#    → F5 → click any request → Request Headers → copy Authorization value)
+# 3. DM @discordbot:matrix.example.com → send: login-token user <paste token>
+# 4. Verify: docker compose logs --tail 10 mautrix-discord → expect "Connected to Discord"
+```
+
+Use a **private window** so closing it later won't invalidate the token.
+Ref: https://docs.mau.fi/bridges/go/discord/authentication.html
+
+### Messenger — `connect failure: 400` / `IRIS_DOMAIN subscribe PERMISSION DENIED`
+
+Symptom: repeated `Unknown connect failure: <failure location="odn" reason="400"/>` and
+`WarthogPermissionDeniedException` in logs; messages stop arriving. The bridge's CAT-refresh loop
+cannot recover a revoked session.
+
+```bash
+# 1. Restart
+ssh -i ~/.ssh/id_rsa root@YOUR_LXC_IP 'cd /opt/matrix-stack && docker compose restart mautrix-meta-fb'
+# 2. DM @messengerbot:matrix.example.com → send: login-cookie
+#    Follow the cURL prompt (copy the GraphQL request as cURL from a logged-in Facebook tab in
+#    DevTools → Network → right-click any messenger.com/api/graphql request → Copy as cURL)
+# 3. Close the browser tab WITHOUT logging out of Facebook (logout invalidates the session)
+# 4. Verify: docker compose logs --tail 10 mautrix-meta-fb → expect message upserts, no 400 errors
+```
+
+Ref: https://etke.cc/help/bridges/mautrix-meta-messenger/
+
+### WUD / updates
+
+WUD is healthy (hourly cron). Calver bridges (meta, telegram, signal, etc.) auto-update.
+Discord (`mautrix-discord`) is pinned at latest v0.7.6 (`wud.watch: false` / semver).
+Image versions are **not** the cause of these disconnects.
+
 ## Bring each bridge online (after deploy)
 
 1. Log in to [Element](https://app.element.io) as `@admin:matrix.example.com`
