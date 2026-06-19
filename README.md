@@ -54,19 +54,25 @@ datacenter IPs, and Discord ToS invalidates user tokens. Re-auth always comes fr
 
 ### Discord — `4004 Authentication failed` / silent no messages
 
-Symptom: `Got logged out from Discord due to invalid token` in logs; bridge appears up but
-delivers nothing.
+Symptom: `close 4004: Authentication failed` / `Got logged out from Discord due to invalid token`
+in logs; bridge appears up but delivers nothing (no gateway activity after the 4004).
 
-```bash
-# 1. Restart
-ssh -i ~/.ssh/id_rsa root@YOUR_LXC_IP 'cd /opt/matrix-stack && docker compose restart mautrix-discord'
-# 2. Get a fresh token (private browser window → Discord web app → F12 → Network → filter "api"
-#    → F5 → click any request → Request Headers → copy Authorization value)
-# 3. DM @discordbot:matrix.example.com → send: login-token user <paste token>
-# 4. Verify: docker compose logs --tail 10 mautrix-discord → expect "Connected to Discord"
+**Re-login (preferred — QR, no token handling):**
+```text
+DM @discordbot:matrix.example.com → send: login-qr
 ```
+Then **Discord phone app → Settings → Scan QR Code** and scan the image the bot posts.
+Verify: `docker logs --tail 10 matrix-stack-mautrix-discord-1` → expect `Connected to Discord`.
 
-Use a **private window** so closing it later won't invalidate the token.
+Backfill is configured (`bridge.backfill.forward_limits.missed: -1` in the live config), so on
+reconnect the bridge **refills every message missed during the outage** — no manual catch-up.
+
+Fallback (token): private browser → Discord web → F12 → Network → copy `Authorization` header →
+DM the bot `login-token user <token>`. Use a private window so closing it won't revoke the token.
+
+**You no longer have to notice this yourself:** `scripts/discord-health.sh` (cron `*/10`) pings you
+via the claude-notify-bot the moment the bridge logs out or stops — see *Monitoring* below.
+
 Ref: https://docs.mau.fi/bridges/go/discord/authentication.html
 
 ### Messenger — `connect failure: 400` / `IRIS_DOMAIN subscribe PERMISSION DENIED`
@@ -93,13 +99,40 @@ WUD is healthy (hourly cron). Calver bridges (meta, telegram, signal, etc.) auto
 Discord (`mautrix-discord`) is pinned at latest v0.7.6 (`wud.watch: false` / semver).
 Image versions are **not** the cause of these disconnects.
 
+### Monitoring — Discord disconnect alerts
+
+`scripts/discord-health.sh` runs from root cron every 10 min on the LXC:
+
+```cron
+*/10 * * * * /opt/matrix-stack/scripts/discord-health.sh
+```
+
+It POSTs the claude-notify-bot webhook (→ encrypted Matrix DM) once per outage if the bridge
+container is down or the logs show a `4004`/`4003`/auth failure in the last 15 min, and clears the
+one-shot flag (`/run/discord-bridge-down`) when it next sees `Connected to Discord`. Reuses
+`CLAUDE_NOTIFY_WEBHOOK_TOKEN` from `.env`; no extra service. Generalise to other bridges by adding
+their container name + auth-failure pattern.
+
+### Host: weekly reboot (reduce reconnect churn)
+
+The LXC's `auto-update` (vendored `noloader/auto-update`) ran daily at 04:10 and rebooted on every
+apt change — a daily cold reconnect that flagged Discord and tripped a startup DNS race. Switched to
+**weekly** (Mondays) via a systemd drop-in *on the host* (not deploy.sh-managed):
+
+```bash
+mkdir -p /etc/systemd/system/auto-update.timer.d
+printf '[Timer]\nOnCalendar=\nOnCalendar=Mon *-*-* 04:10:00\n' \
+  > /etc/systemd/system/auto-update.timer.d/override.conf
+systemctl daemon-reload && systemctl restart auto-update.timer
+```
+
 ## Bring each bridge online (after deploy)
 
 1. Log in to [Element](https://app.element.io) as `@admin:matrix.example.com`
 2. DM `@whatsappbot:matrix.example.com` → send `login qr` → scan QR from WhatsApp mobile
 3. DM `@telegrambot:matrix.example.com` → send `login` → enter phone + OTP
 4. DM `@signalbot:matrix.example.com` → send `link` → scan from Signal mobile (Linked Devices)
-5. DM `@discordbot:matrix.example.com` → send `login-token user <token>`
+5. DM `@discordbot:matrix.example.com` → send `login-qr` → scan from Discord mobile (Settings → Scan QR Code)
 6. DM `@slackbot:matrix.example.com` → send `login` → follow OAuth flow
 7. DM `@gmessagesbot:matrix.example.com` → send `login` → follow QR pairing flow
 8. DM `@twitterbot:matrix.example.com` → send `login` → enter credentials

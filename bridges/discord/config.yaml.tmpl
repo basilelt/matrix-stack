@@ -52,6 +52,21 @@ bridge:
   command_prefix: "!discord"
   restricted_rooms: false
 
+  # Backfill missed messages on reconnect/startup so Discord gaps (token re-login,
+  # weekly reboot) don't silently drop messages. missed: -1 = fetch everything since
+  # the last bridged message. initial fetches ALL before bridging, so keep it small.
+  backfill:
+    forward_limits:
+      initial:
+        dm: 20
+        channel: 20
+        thread: 20
+      missed:
+        dm: -1
+        channel: -1
+        thread: -1
+    max_guild_members: -1
+
   permissions:
     "${MATRIX_DOMAIN}": user
     "${BRIDGE_ADMIN_USER}": admin
