@@ -225,6 +225,11 @@ cfg = {
         "account": {"per_second": 100, "burst_count": 500},
         "failed_attempts": {"per_second": 100, "burst_count": 500},
     },
+    "auto_accept_invites": {
+        "enabled": True,
+        "only_for_direct_messages": False,
+        "only_from_local_users": True,
+    },
 }
 
 # Remove None values (e.g. federation_domain_whitelist when federation enabled)
