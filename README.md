@@ -2,10 +2,10 @@
 
 Self-hosted Matrix homeserver + bridges on a single Debian 13 LXC, behind Cloudflare Tunnel.
 
-## Prerequisites on the Mac
+## Prerequisites on the Linux workstation
 
 - SSH key at `~/.ssh/id_rsa` (must have access to `root@YOUR_PROXMOX_IP`)
-- `rsync` (`brew install rsync` if missing)
+- `rsync` (`sudo apt install rsync` if missing)
 
 ## Proxmox LXC requirements (handled by deploy.sh)
 
@@ -41,7 +41,7 @@ Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_LXC_IP:8080 → 
 | Force container updates | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose restart wud"` |
 | Force OS updates | `ssh root@YOUR_LXC_IP "systemctl start auto-update.service"` |
 | Add SSH pubkey | `ssh root@YOUR_LXC_IP "echo 'ssh-ed25519 AAAA...' >> /root/.ssh/authorized_keys"` |
-| Backup | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && tar czf ~/backup.tgz .env synapse bridges postgres/data"` |
+| Backup | `ssh root@YOUR_LXC_IP 'cd /opt/matrix-stack && docker compose exec -T postgres pg_dumpall -U synapse \| gzip > ~/matrix-pg-$(date +%F).sql.gz && tar czf ~/matrix-files-$(date +%F).tgz .env synapse bridges'` (logical dump — crash-consistent; never tar a live `postgres/data`) |
 | Stop stack | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose down"` |
 | Register a new user | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && ./setup.sh register-user"` |
 

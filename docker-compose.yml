@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
 
   synapse:
-    image: matrixdotorg/synapse:v1.153.0
+    image: matrixdotorg/synapse:v1.155.0
     <<: *wud-off
     depends_on:
       postgres:
@@ -53,6 +53,12 @@ services:
       - ./synapse:/data
     ports:
       - "127.0.0.1:8008:8008"
+    healthcheck:
+      test: ["CMD", "curl", "-fSs", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   caddy:
@@ -67,6 +73,11 @@ services:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/data:/data
       - ./stickers/web:/srv/stickerpicker:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   mautrix-whatsapp:
@@ -81,13 +92,19 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/whatsapp:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29318/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-telegram:
-    image: dock.mau.dev/mautrix/telegram:v0.2605.0
+    image: dock.mau.dev/mautrix/telegram:v0.2606.0
     <<: *wud-calver
     profiles:
       - telegram
@@ -95,13 +112,19 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/telegram:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29317/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-signal:
-    image: dock.mau.dev/mautrix/signal:v0.2605.0
+    image: dock.mau.dev/mautrix/signal:v0.2606.0
     <<: *wud-calver
     profiles:
       - signal
@@ -109,9 +132,15 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/signal:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29328/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-discord:
@@ -123,13 +152,19 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/discord:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29334/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-slack:
-    image: dock.mau.dev/mautrix/slack:v0.2605.0
+    image: dock.mau.dev/mautrix/slack:v0.2606.0
     <<: *wud-calver
     profiles:
       - slack
@@ -137,9 +172,15 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/slack:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29335/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-gmessages:
@@ -151,9 +192,15 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/gmessages:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29336/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-twitter:
@@ -165,9 +212,15 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/twitter:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29337/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-googlechat:
@@ -179,9 +232,15 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/googlechat:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29338/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-linkedin:
@@ -193,13 +252,19 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/linkedin:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29341/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-meta-fb:
-    image: dock.mau.dev/mautrix/meta:v0.2605.1
+    image: dock.mau.dev/mautrix/meta:v0.2606.0
     <<: *wud-calver
     profiles:
       - meta-fb
@@ -207,13 +272,19 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/meta-fb:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29340/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   mautrix-meta-ig:
-    image: dock.mau.dev/mautrix/meta:v0.2605.1
+    image: dock.mau.dev/mautrix/meta:v0.2606.0
     <<: *wud-calver
     profiles:
       - meta-ig
@@ -221,9 +292,15 @@ services:
       postgres:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./bridges/meta-ig:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:29341/_matrix/mau/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   libretranslate:

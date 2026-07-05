@@ -21,7 +21,7 @@ mx() { ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$MATR
 preflight() {
   [[ -f "$SSH_KEY" ]]     || { echo "ERROR: $SSH_KEY not found."; exit 1; }
   [[ -f "$SSH_KEY.pub" ]] || { echo "ERROR: $SSH_KEY.pub not found."; exit 1; }
-  command -v rsync >/dev/null || { echo "ERROR: rsync not found. Install with: brew install rsync"; exit 1; }
+  command -v rsync >/dev/null || { echo "ERROR: rsync not found. Install with: sudo apt install rsync"; exit 1; }
 }
 
 # ---------------------------------------------------------------------------

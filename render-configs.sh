@@ -430,38 +430,6 @@ PY
 fi
 
 ###############################################################################
-# 9. Render cookie-refresher/config.json from template
-###############################################################################
-
-log "Rendering cookie-refresher/config.json..."
-COOKIE_REFRESHER_TMPL="${SCRIPT_DIR}/cookie-refresher/config.json.tmpl"
-COOKIE_REFRESHER_OUT="${SCRIPT_DIR}/cookie-refresher/config.json"
-
-if [[ "${ENABLE_COOKIE_REFRESHER:-false}" != "true" ]]; then
-  log "  cookie-refresher disabled (ENABLE_COOKIE_REFRESHER != true) — skipping."
-elif [[ ! -f "${COOKIE_REFRESHER_TMPL}" ]]; then
-  warn "cookie-refresher/config.json.tmpl not found — skipping."
-else
-  TMPL_PATH="${COOKIE_REFRESHER_TMPL}" OUT_PATH="${COOKIE_REFRESHER_OUT}" \
-  python3 - <<'PY'
-import os, string
-
-tmpl_path = os.environ["TMPL_PATH"]
-out_path  = os.environ["OUT_PATH"]
-
-with open(tmpl_path, "r") as f:
-    template = string.Template(f.read())
-
-rendered = template.safe_substitute(os.environ)
-
-with open(out_path, "w") as f:
-    f.write(rendered)
-print(f"  Written: {out_path}")
-PY
-  ok "cookie-refresher/config.json rendered."
-fi
-
-###############################################################################
 # 9b. Render stickers/config.json from template
 ###############################################################################
 
@@ -510,10 +478,6 @@ done
 
 if [[ "${ENABLE_TRANSLATE_BOT:-false}" == "true" ]]; then
   PROFILES+=("translate")
-fi
-
-if [[ "${ENABLE_COOKIE_REFRESHER:-false}" == "true" ]]; then
-  PROFILES+=("cookie-refresher")
 fi
 
 if [[ "${ENABLE_CLAUDE_NOTIFY:-false}" == "true" ]]; then

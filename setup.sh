@@ -465,15 +465,6 @@ PYEOF
       fi
     fi
 
-    # ── 15a. Register cookie-refresher user + build image (if enabled) ──────────
-    if [[ "${ENABLE_COOKIE_REFRESHER:-false}" == "true" ]]; then
-      docker compose exec -T synapse register_new_matrix_user \
-        -u "cookie-refresher" -p "${COOKIE_REFRESHER_PASSWORD}" --no-admin \
-        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
-      log "Building cookie-refresher image (Playwright, may take a while)..."
-      docker compose build cookie-refresher
-    fi
-
     # ── 15. Bring everything up ───────────────────────────────────────────────
     docker compose up -d
     ok "Stack is up."
