@@ -24,11 +24,70 @@ Self-hosted Matrix homeserver + bridges on a single Debian 13 LXC, behind Cloudf
 
 ```
 Internet → Cloudflare edge (TLS) → cloudflared LXC → YOUR_LXC_IP:8080 → Caddy → Synapse:8008
+                                                                              → MAS:8080 (login/logout/refresh)
 ```
 
 - No ports exposed to internet — cloudflared tunnel only
 - Matrix LXC: `YOUR_LXC_IP` (key-only SSH via `~/.ssh/id_rsa`)
 - Domain: `matrix.example.com`
+- Auth: delegated to MAS (Matrix Authentication Service), which federates to Authentik — see below
+
+## Matrix Authentication Service (MAS) — Authentik SSO
+
+Set `MAS_ENABLED=true` (+ `MAS_PUBLIC_URL`, `MAS_SYNAPSE_SECRET`, `MAS_AUTHENTIK_CLIENT_ID/SECRET`,
+`MAS_UPSTREAM_ULID` in `.env`) to delegate Synapse auth to MAS with Authentik as the upstream OIDC
+provider. `render-configs.sh` then:
+- Adds `matrix_authentication_service: {enabled, endpoint: http://mas:8080/, secret}` to
+  `homeserver.yaml`.
+- Renders `mas/config.yaml` from `mas/config.yaml.tmpl` (**skip-if-exists** — see the note in
+  `render-configs.sh` §7b: MAS's signing keys/encryption secret live in this file and must NOT be
+  regenerated on every render, or every session/token breaks. Generate once:
+  `docker run --rm ghcr.io/element-hq/matrix-authentication-service:1.20.0 config generate`,
+  paste the `secrets:` block into `mas/config.yaml`, then let the template fill in the rest).
+- Routes `/_matrix/client/(v3|r0|unstable)/(login|logout|refresh)` to MAS in the Caddyfile
+  (must come *before* the generic `/_matrix/*` → synapse handler), adds the
+  `org.matrix.msc2965.authentication` block to the static `/.well-known/matrix/client` responder,
+  and adds a second Caddy site block for `MAS_PUBLIC_URL` (public-only, no LAN/HAProxy route needed
+  — cloudflared ingress + DNS route only). **When a second site is added, the `:{CADDY_PORT}` site
+  needs explicit `{ }` braces** — Caddy can't otherwise tell where one site's directives end and
+  the next site's hostname begins; without it, reload fails with
+  `unrecognized directive: mas.bb-bbb.com`.
+- Adds `mas` to `.compose-profiles` (the `mas` service in `docker-compose.yml` is behind a compose
+  profile, dormant unless included).
+
+**Migrating existing users:** `mas-cli syn2mas check`/`migrate` (in the MAS image) imports Synapse's
+password users (bcrypt hashes, sessions, devices, tokens) into MAS's database — existing clients
+keep working, no forced re-login. Requires `passwords.schemes` to include
+`{version: 1, algorithm: bcrypt}` (MAS defaults to argon2id only). Requires Synapse stopped during
+the real (non-dry-run) migration. Non-destructive validation first: `mas-cli config check`,
+`syn2mas check`, `syn2mas migrate --dry-run` (dry-run truncates its own imported data at the end —
+safe to run repeatedly). `mas-cli doctor --config mas/config.yaml` is the single best post-cutover
+health check (validates well-known, homeserver reachability, legacy login routing — all in one).
+
+**Gotcha — bots/bridges must talk to Caddy, not Synapse, directly.** Anything that logs in via
+`m.login.password` against `http://synapse:8008` directly (bypassing Caddy) breaks once MAS is
+enabled — Synapse itself returns 404/`M_UNRECOGNIZED` for `/login` under MAS delegation; only
+requests that pass through Caddy's `/_matrix/client/.../login` matcher get proxied to MAS.
+`translate-bot` and `claude-notify-bot` (`config.json.tmpl`) point `homeserver` at
+`http://caddy:8080` (not `http://synapse:8008`) for exactly this reason. `setup.sh`'s sticker-room
+provisioning (`_stk_admin_token`, `_admin_token`, `_stk_token` — the three `/login` calls around
+lines 370/411/447) uses `http://localhost:8080` (Caddy's published port), not `:8008`, for the same
+reason. This applies to ANY future component that logs in with a password.
+
+**Gotcha — googlechat cannot use encryption under MAS.** googlechat (Python bridge) has no MSC4190
+support — its e2ee client calls `GET /_matrix/client/v3/login` directly on `synapse:8008` at
+startup (to discover login flows) regardless of `encryption.default`, and crash-loops when that
+404s under MAS (mirrors element-hq/matrix-authentication-service#3206). Fix: both
+`encryption.allow: false` AND `encryption.default: false` in `bridges/googlechat/config.yaml` (allow
+alone is not enough — the crash happens during e2ee client init, before default is even consulted).
+All other bridges have `msc4190: true` and are unaffected.
+
+**Post-cutover cleanup (not done automatically):** while `passwords.enabled: true` and
+`claims_imports.localpart.on_conflict: add` stay set, existing users can log in with either
+password or Authentik SSO, and Authentik logins link to (not replace) the migrated account. Once
+every human has logged in via Authentik at least once, consider flipping `on_conflict` to `fail`
+(prevents new SSO logins from silently creating duplicate accounts on a localpart mismatch) —
+bots must move to token-based auth before disabling passwords entirely.
 
 ## Operational cheatsheet
 
@@ -262,6 +321,35 @@ curl -s -X POST https://notify.example.com/notify \
 - [ ] Each bridge bot responds to `help` in DM
 - [ ] `ssh root@YOUR_LXC_IP "systemctl list-timers | grep auto-update"`
 - [ ] `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose logs wud"`
+
+## Multi-user bridges & double puppeting
+
+Every bridgev2 ("megabridge") config grants `"matrix.bb-bbb.com": user` in its `permissions:`
+block — any local Matrix user can log their own account into any bridge (their own
+WhatsApp/Telegram/Signal/etc.), get their own portals, and double-puppet as themselves. The
+`"*"` wildcard default is `block` (fixed 2026-07-10 — `setup.sh`'s bridge-config generator used
+to translate the bridge's own default `relaybot` value to `"*": relay`, which is the opposite of
+per-user separation: it would let unauthenticated/unmatched senders talk through the bridge bot
+as a shared relay identity instead of requiring their own login). `relay.enabled` stays `false`
+everywhere.
+
+**Double puppeting** uses a single shared `doublepuppet` appservice `as_token`
+(`synapse/appservices/doublepuppet-registration.yaml`), referenced by each bridge as
+`double_puppet.secrets: { matrix.bb-bbb.com: as_token:<TOKEN> }` (the "modern"/bridgev2 method —
+works for whatsapp, telegram, signal, slack, gmessages, twitter, meta-fb, meta-ig, linkedin).
+
+**discord and googlechat are legacy-format bridges and CANNOT use that method.** They only
+support `login_shared_secret_map: { matrix.bb-bbb.com: <secret> }`, which authenticates via the
+**`matrix-synapse-shared-secret-auth` Synapse password_provider module** — a completely
+different mechanism, and that module **is not installed** in this stack (confirmed: no
+`password_providers:` block in `homeserver.yaml`, module not importable in the synapse
+container). Wiring the doublepuppet as_token into `login_shared_secret_map` (as `setup.sh` used
+to do, and as this session initially tried) does NOT work — it just produces repeated
+`Failed to login with shared secret: M_FORBIDDEN` on every bridge restart. `setup.sh` leaves
+`login_shared_secret_map` empty for these two bridges now; double-puppeting for discord/
+googlechat requires either installing that module (own Synapse password-provider, needs a
+custom-built Synapse image or a sidecar) or per-user manual `login-matrix` (paste an access
+token). Bridging itself is unaffected — only the "sent as you" cosmetic ghost styling.
 
 ## Gotchas / Lessons
 

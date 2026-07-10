@@ -48,14 +48,53 @@ python3 - <<'PY'
 import os, textwrap
 
 caddy_port = os.environ.get("CADDY_PORT", "8080")
+mas_enabled = os.environ.get("MAS_ENABLED", "false").strip().lower() == "true"
+mas_public_url = os.environ.get("MAS_PUBLIC_URL", "https://mas.example.com")
 
 # Caddy uses its own {placeholder} syntax — NOT shell/Python variables.
 # We use a regular string and only substitute caddy_port via Python.
+client_wellknown_auth = ""
+mas_auth_routes = ""
+mas_vhost = ""
+# When MAS adds a second site (mas.bb-bbb.com) to this file, the :{caddy_port} site's
+# directives must be explicitly braced — otherwise Caddy can't tell where it ends and
+# reads the next site's hostname as an unrecognized directive of the first site.
+site_open = ""
+site_close = ""
+if mas_enabled:
+    site_open = " {"
+    site_close = "}"
+    client_wellknown_auth = (
+        ',"org.matrix.msc2965.authentication":{"issuer":"'
+        + mas_public_url
+        + '/","account":"'
+        + mas_public_url
+        + '/account"}'
+    )
+    mas_auth_routes = """\
+@masauth path_regexp ^/_matrix/client/(v3|r0|unstable)/(login|logout|refresh)$
+    handle @masauth {
+        reverse_proxy mas:8080 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+    """
+    mas_vhost = f"""
+
+{mas_public_url.replace('https://', '').replace('http://', '')} {{
+    reverse_proxy mas:8080 {{
+        header_up X-Forwarded-For {{remote_host}}
+        header_up X-Forwarded-Proto https
+    }}
+}}
+"""
+
 content = textwrap.dedent("""\
     {{
         auto_https off
     }}
-    :{caddy_port}
+    :{caddy_port}{site_open}
     handle /.well-known/matrix/server {{
         header Content-Type application/json
         respond `{{"m.server":"{matrix_domain}:443"}}` 200
@@ -63,9 +102,9 @@ content = textwrap.dedent("""\
     handle /.well-known/matrix/client {{
         header Content-Type application/json
         header Access-Control-Allow-Origin *
-        respond `{{"m.homeserver":{{"base_url":"https://{matrix_domain}"}},"m.identity_server":{{"base_url":"https://vector.im"}}}}` 200
+        respond `{{"m.homeserver":{{"base_url":"https://{matrix_domain}"}},"m.identity_server":{{"base_url":"https://vector.im"}}{client_wellknown_auth}}}` 200
     }}
-    handle /.well-known/matrix/mautrix {{
+    {mas_auth_routes}handle /.well-known/matrix/mautrix {{
         header Content-Type application/json
         header Access-Control-Allow-Origin *
         respond `{{"fi.mau.bridges":["https://{matrix_domain}/bridge/discord","https://{matrix_domain}/bridge/gmessages","https://{matrix_domain}/bridge/googlechat","https://{matrix_domain}/bridge/linkedin","https://{matrix_domain}/bridge/meta-fb","https://{matrix_domain}/bridge/meta-ig","https://{matrix_domain}/bridge/signal","https://{matrix_domain}/bridge/slack","https://{matrix_domain}/bridge/telegram","https://{matrix_domain}/bridge/twitter","https://{matrix_domain}/bridge/whatsapp"]}}` 200
@@ -122,7 +161,18 @@ content = textwrap.dedent("""\
     handle {{
         respond "Matrix server. Use a Matrix client like Element." 200
     }}
-""").format(caddy_port=caddy_port, matrix_domain=os.environ.get("PUBLIC_DOMAIN", os.environ.get("MATRIX_DOMAIN", "example.com")))
+""").format(
+    caddy_port=caddy_port,
+    matrix_domain=os.environ.get("PUBLIC_DOMAIN", os.environ.get("MATRIX_DOMAIN", "example.com")),
+    client_wellknown_auth=client_wellknown_auth,
+    mas_auth_routes=mas_auth_routes,
+    site_open=site_open,
+)
+
+if site_close:
+    content += site_close + "\n"
+
+content += mas_vhost
 
 out_path = os.path.join(os.environ.get("SCRIPT_DIR", "."), "caddy", "Caddyfile")
 with open(out_path, "w") as f:
@@ -231,6 +281,15 @@ cfg = {
         "only_from_local_users": True,
     },
 }
+
+mas_enabled = env.get("MAS_ENABLED", "false").strip().lower() == "true"
+if mas_enabled:
+    mas_secret = env["MAS_SYNAPSE_SECRET"]
+    cfg["matrix_authentication_service"] = {
+        "enabled": True,
+        "endpoint": "http://mas:8080/",
+        "secret": mas_secret,
+    }
 
 # Remove None values (e.g. federation_domain_whitelist when federation enabled)
 cfg = {k: v for k, v in cfg.items() if v is not None}
@@ -398,6 +457,45 @@ PY
 fi
 
 ###############################################################################
+# 7b. Render mas/config.yaml from template (Matrix Authentication Service)
+###############################################################################
+
+# NOTE: config.yaml embeds MAS's signing keys + encryption secret (generated once via
+# `mas-cli config generate`, see README). Re-rendering from the template would discard
+# them and invalidate every existing session/token, so — like the bridge configs — this
+# is skip-if-exists, not regenerated on every run.
+log "Rendering mas/config.yaml..."
+MAS_TMPL="${SCRIPT_DIR}/mas/config.yaml.tmpl"
+MAS_OUT="${SCRIPT_DIR}/mas/config.yaml"
+
+if [[ "${MAS_ENABLED:-false}" != "true" ]]; then
+  log "  MAS disabled (MAS_ENABLED != true) — skipping."
+elif [[ -f "${MAS_OUT}" ]]; then
+  log "  mas/config.yaml already exists — skipping (preserves signing keys; edit by hand or delete to regenerate)."
+elif [[ ! -f "${MAS_TMPL}" ]]; then
+  warn "mas/config.yaml.tmpl not found — skipping."
+else
+  mkdir -p "${SCRIPT_DIR}/mas"
+  TMPL_PATH="${MAS_TMPL}" OUT_PATH="${MAS_OUT}" \
+  python3 - <<'PY'
+import os, string
+
+tmpl_path = os.environ["TMPL_PATH"]
+out_path  = os.environ["OUT_PATH"]
+
+with open(tmpl_path, "r") as f:
+    template = string.Template(f.read())
+
+rendered = template.safe_substitute(os.environ)
+
+with open(out_path, "w") as f:
+    f.write(rendered)
+print(f"  Written: {out_path}")
+PY
+  ok "mas/config.yaml rendered."
+fi
+
+###############################################################################
 # 8. Render claude-notify-bot/config.json from template
 ###############################################################################
 
@@ -486,6 +584,10 @@ fi
 
 if [[ "${ENABLE_STICKERS:-false}" == "true" ]]; then
   PROFILES+=("stickers")
+fi
+
+if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+  PROFILES+=("mas")
 fi
 
 # Join with commas

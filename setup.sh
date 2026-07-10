@@ -138,7 +138,7 @@ https://download.docker.com/linux/debian trixie stable" \
               -e "s|address: http://localhost:\([0-9]*\)|address: http://${svc}:\1|" \
               -e "s|\"example.com\": user|\"${MATRIX_DOMAIN}\": user|" \
               -e "s|\"@admin:example.com\": admin|\"@${SYNAPSE_ADMIN_USER}:${MATRIX_DOMAIN}\": admin|" \
-              -e "s|\"\\*\": relaybot|\"*\": relay|" \
+              -e "s|\"\\*\": relaybot|\"*\": block|" \
               -e "s|\": full\"|\": user\"|" \
               -e "s|^    allow: false$|    allow: true|" \
               -e "s|^    default: false$|    default: true|" \
@@ -301,10 +301,12 @@ def inject_modern(m):
     return block + f'{indent}{domain}: as_token:{token}\n'
 new = pat_modern.sub(inject_modern, content)
 
-# Old format: login_shared_secret_map: {} → wire under bridge:
-pat_old = re.compile(r'(    login_shared_secret_map:) \{\}')
-if pat_old.search(new) and f'login_shared_secret_map:' not in new.replace('    login_shared_secret_map: {}', ''):
-    new = pat_old.sub(f'\\1\n        {domain}: {token}', new)
+# Old format (login_shared_secret_map) requires the matrix-synapse-shared-secret-auth
+# Synapse password_provider module, which this stack does NOT install — wiring the
+# doublepuppet as_token in here does not work (it's a different auth mechanism) and only
+# produces repeated "Invalid username or password" errors on bridge startup. Leave empty;
+# affected legacy bridges (discord, googlechat) don't get automatic double-puppeting until
+# that module is added. See services/matrix-stack/README.md "Double puppeting" section.
 
 if new != content:
     open(path, 'w').write(new)
@@ -365,7 +367,7 @@ DPPY
 
       # ── Set sticker picker widget for MATRIX_USER (idempotent) ──────────────
       log "Configuring sticker picker widget for @${MATRIX_USER}:${MATRIX_DOMAIN}..."
-      _stk_admin_token=$(curl -sf -X POST "http://localhost:8008/_matrix/client/v3/login" \
+      _stk_admin_token=$(curl -sf -X POST "http://localhost:8080/_matrix/client/v3/login" \
         -H "Content-Type: application/json" \
         -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"${SYNAPSE_ADMIN_USER}\"},\"password\":\"${SYNAPSE_ADMIN_PASSWORD}\"}" \
         | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true
@@ -406,7 +408,7 @@ PYEOF
       log "Wiring Favorites space ↔ stickers room..."
 
       # Login as admin to get a token for space state event + invite
-      _admin_token=$(curl -sf -X POST "http://localhost:8008/_matrix/client/v3/login" \
+      _admin_token=$(curl -sf -X POST "http://localhost:8080/_matrix/client/v3/login" \
         -H "Content-Type: application/json" \
         -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"${SYNAPSE_ADMIN_USER}\"},\"password\":\"${SYNAPSE_ADMIN_PASSWORD}\"}" \
         | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true
@@ -442,7 +444,7 @@ PYEOF
       fi
 
       # Login as @stickers to set m.space.parent on the stickers room (needs PL ≥ 50 there)
-      _stk_token=$(curl -sf -X POST "http://localhost:8008/_matrix/client/v3/login" \
+      _stk_token=$(curl -sf -X POST "http://localhost:8080/_matrix/client/v3/login" \
         -H "Content-Type: application/json" \
         -d "$(python3 -c "import json; print(json.dumps({'type':'m.login.password','identifier':{'type':'m.id.user','user':'${STICKERS_USER_LOCALPART:-stickers}'},'password':'${STICKERS_PASSWORD}'}))")" \
         | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true

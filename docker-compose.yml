@@ -61,6 +61,24 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  mas:
+    image: ghcr.io/element-hq/matrix-authentication-service:1.20.0
+    <<: *wud-off
+    profiles:
+      - mas
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_healthy
+    volumes:
+      - ./mas/config.yaml:/config.yaml:ro
+    command: ["server", "--config", "/config.yaml"]
+    # No healthcheck: the image ships only the mas-cli binary (no wget/curl/shell), and
+    # `mas-cli doctor` makes external network calls (well-known lookup) — too heavy/flaky
+    # for frequent polling. Nothing depends_on this service's health.
+    restart: unless-stopped
+
   caddy:
     image: caddy:2-alpine
     <<: *wud-off
@@ -204,7 +222,7 @@ services:
     restart: unless-stopped
 
   mautrix-twitter:
-    image: dock.mau.dev/mautrix/twitter:v0.2604.0
+    image: dock.mau.dev/mautrix/twitter:v0.2606.0
     <<: *wud-calver
     profiles:
       - twitter

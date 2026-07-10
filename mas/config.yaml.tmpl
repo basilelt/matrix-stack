@@ -1,0 +1,81 @@
+# mas/config.yaml.tmpl — rendered by render-configs.sh (skip-if-exists — see that script).
+#
+# FIRST-TIME SETUP: this template does NOT include the `secrets:` block (signing keys +
+# encryption key). Generate it once and prepend it to the rendered output:
+#
+#   docker run --rm ghcr.io/element-hq/matrix-authentication-service:1.20.0 config generate \
+#     | grep -v '^20[0-9-]*T' > mas/secrets.yaml.generated
+#   # extract just the `secrets:` block from that output and paste it at the top of
+#   # mas/config.yaml (below), then never regenerate it — every existing session/token
+#   # is signed with these keys.
+#
+# Do not commit the real mas/config.yaml (gitignored) — only this template.
+
+http:
+  listeners:
+    - name: web
+      resources:
+        - name: discovery
+        - name: human
+        - name: oauth
+        - name: compat
+        - name: graphql
+        - name: assets
+      binds:
+        - address: '0.0.0.0:8080'
+      proxy_protocol: false
+    - name: internal
+      resources:
+        - name: health
+      binds:
+        - host: 0.0.0.0
+          port: 8081
+      proxy_protocol: false
+  public_base: ${MAS_PUBLIC_URL}/
+  issuer: ${MAS_PUBLIC_URL}/
+
+database:
+  uri: postgresql://${MAS_PG_USER}:${POSTGRES_PASSWORD}@postgres/${MAS_PG_DB}
+
+matrix:
+  kind: synapse
+  homeserver: ${MATRIX_DOMAIN}
+  endpoint: "http://synapse:8008"
+  secret: "${MAS_SYNAPSE_SECRET}"
+
+upstream_oauth2:
+  providers:
+    - id: ${MAS_UPSTREAM_ULID}
+      human_name: Authentik
+      issuer: "https://sso.bb-bbb.com/application/o/matrix/"
+      client_id: "${MAS_AUTHENTIK_CLIENT_ID}"
+      client_secret: "${MAS_AUTHENTIK_CLIENT_SECRET}"
+      token_endpoint_auth_method: client_secret_basic
+      scope: "openid profile email"
+      claims_imports:
+        localpart:
+          action: require
+          template: "{{ user.preferred_username }}"
+          on_conflict: add
+        displayname:
+          action: suggest
+          template: "{{ user.name }}"
+        email:
+          action: suggest
+          template: "{{ user.email }}"
+
+passwords:
+  enabled: true
+  schemes:
+    - version: 1
+      algorithm: bcrypt
+    - version: 2
+      algorithm: argon2id
+
+account:
+  password_registration_enabled: false
+  password_recovery_enabled: false
+
+email:
+  from: '"Matrix Auth" <noreply@bb-bbb.com>'
+  transport: blackhole
