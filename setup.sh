@@ -93,6 +93,11 @@ https://download.docker.com/linux/debian trixie stable" \
         -c "CREATE DATABASE ${POSTGRES_DB}_${db_slug};" 2>/dev/null || true
     done
 
+    if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+      docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        -c "CREATE DATABASE ${MAS_PG_DB:-mas};" 2>/dev/null || true
+    fi
+
     # ── 9. Generate bridge registrations BEFORE Synapse starts ───────────────
     # homeserver.yaml references appservices/*.yaml, so they must exist first.
     # mautrix v2 (megabridge) bridges: auto-generate default config, patch fields, then register.

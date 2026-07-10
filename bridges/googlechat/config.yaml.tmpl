@@ -38,8 +38,11 @@ bridge:
   login_shared_secret_map:
     ${MATRIX_DOMAIN}: ${DOUBLE_PUPPET_SECRET}
   encryption:
-    allow: true
-    default: true
+    # allow+default MUST both be false: this bridge has no msc4190 support and its
+    # e2ee client hits GET /_matrix/client/v3/login on synapse directly at startup,
+    # which 404s once MAS delegates /login — crash-loops (MUnrecognized) otherwise.
+    allow: false
+    default: false
     require: false
     allow_key_sharing: true
 
