@@ -326,7 +326,11 @@ DPPY
     # Generate signing key (idempotent, must run before synapse service starts)
     docker compose run --rm synapse generate || true
 
-    docker compose up -d synapse caddy
+    if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+      docker compose up -d synapse caddy mas
+    else
+      docker compose up -d synapse caddy
+    fi
 
     log "Waiting for Synapse to be ready..."
     WAITED=0
@@ -339,43 +343,112 @@ DPPY
     done
     ok "Synapse is ready"
 
+    # mas-cli manage subcommands are pure MAS-DB operations (no Synapse call), but the
+    # container itself needs a moment to start after `up -d`.
+    if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+      log "Waiting for MAS to be ready..."
+      WAITED=0
+      until docker compose exec -T mas mas-cli manage list-admin-users -c /config.yaml >/dev/null 2>&1; do
+        if [[ "$WAITED" -ge 60 ]]; then
+          die "MAS did not become ready after 60 seconds — check logs: docker compose logs mas"
+        fi
+        sleep 2
+        (( WAITED += 2 ))
+      done
+      ok "MAS is ready"
+    fi
+
+    # Registers a bot user + mints its access token (device-id matched, so an existing
+    # e2ee identity/device is reused rather than a fresh one being created), when MAS
+    # owns auth. Idempotent: register-user is safe to re-run, and the token env var is
+    # only ever written once (set_env_var_if_missing) so re-running setup.sh doesn't
+    # mint a fresh device/session every time.
+    mas_register_and_token() {
+      local user="$1" pass="$2" device="$3" token_var="$4" admin_flag="${5:---no-admin}"
+      local token_scope_flag=""
+      [[ "$admin_flag" == "--admin" ]] && token_scope_flag="--yes-i-want-to-grant-synapse-admin-privileges"
+      docker compose exec -T mas mas-cli manage register-user --yes "$admin_flag" \
+        -p "$pass" -c /config.yaml "$user" >/dev/null 2>&1 || true
+      if ! grep -q "^${token_var}=" "$SCRIPT_DIR/.env" 2>/dev/null; then
+        local token
+        token=$(docker compose exec -T mas mas-cli manage issue-compatibility-token -c /config.yaml "$user" "$device" $token_scope_flag 2>&1 \
+          | grep -oP 'Compatibility token issued: \K\S+') || true
+        if [[ -n "$token" ]]; then
+          set_env_var_if_missing "$token_var" "$token"
+          ok "Minted ${token_var}"
+        else
+          warn "Could not mint ${token_var} for ${user} — set it manually via mas-cli manage issue-compatibility-token"
+        fi
+      fi
+    }
+
     # ── 12. Register admin user (idempotent) ─────────────────────────────────
-    docker compose exec -T synapse register_new_matrix_user \
-      -u "$SYNAPSE_ADMIN_USER" -p "$SYNAPSE_ADMIN_PASSWORD" -a \
-      -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+    if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+      docker compose exec -T mas mas-cli manage register-user --yes --admin \
+        -p "$SYNAPSE_ADMIN_PASSWORD" -c /config.yaml "$SYNAPSE_ADMIN_USER" >/dev/null 2>&1 || true
+    else
+      docker compose exec -T synapse register_new_matrix_user \
+        -u "$SYNAPSE_ADMIN_USER" -p "$SYNAPSE_ADMIN_PASSWORD" -a \
+        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+    fi
 
     # ── 14. Register translate-bot user + build image (if enabled) ───────────
     if [[ "${ENABLE_TRANSLATE_BOT:-false}" == "true" ]]; then
-      docker compose exec -T synapse register_new_matrix_user \
-        -u "$TRANSLATE_BOT_USER_LOCALPART" -p "$TRANSLATE_BOT_PASSWORD" --no-admin \
-        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+        mas_register_and_token "$TRANSLATE_BOT_USER_LOCALPART" "$TRANSLATE_BOT_PASSWORD" \
+          TRANSLATEBOT01 TRANSLATE_BOT_ACCESS_TOKEN
+        mas_register_and_token "$SYNAPSE_ADMIN_USER" "$SYNAPSE_ADMIN_PASSWORD" \
+          TRANSLATEBOTADMIN01 TRANSLATE_BOT_ADMIN_TOKEN --admin
+      else
+        docker compose exec -T synapse register_new_matrix_user \
+          -u "$TRANSLATE_BOT_USER_LOCALPART" -p "$TRANSLATE_BOT_PASSWORD" --no-admin \
+          -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      fi
       log "Building translate-bot image (this may take a while)..."
       docker compose build matrix-translate-bot
     fi
 
     # ── 14b. Register claude-notify-bot user + build image (if enabled) ─────────
     if [[ "${ENABLE_CLAUDE_NOTIFY:-false}" == "true" ]]; then
-      docker compose exec -T synapse register_new_matrix_user \
-        -u "${CLAUDE_NOTIFY_USER_LOCALPART:-claude-notify}" -p "$CLAUDE_NOTIFY_PASSWORD" --no-admin \
-        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+        mas_register_and_token "${CLAUDE_NOTIFY_USER_LOCALPART:-claude-notify}" "$CLAUDE_NOTIFY_PASSWORD" \
+          CLAUDENOTIFY01 CLAUDE_NOTIFY_ACCESS_TOKEN
+      else
+        docker compose exec -T synapse register_new_matrix_user \
+          -u "${CLAUDE_NOTIFY_USER_LOCALPART:-claude-notify}" -p "$CLAUDE_NOTIFY_PASSWORD" --no-admin \
+          -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      fi
       log "Building claude-notify-bot image..."
       docker compose build claude-notify-bot
     fi
 
     # ── 14c. Register stickers user + build image (if enabled) ─────────────────
     if [[ "${ENABLE_STICKERS:-false}" == "true" ]]; then
-      docker compose exec -T synapse register_new_matrix_user \
-        -u "${STICKERS_USER_LOCALPART:-stickers}" -p "$STICKERS_PASSWORD" --no-admin \
-        -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+        mas_register_and_token "${STICKERS_USER_LOCALPART:-stickers}" "$STICKERS_PASSWORD" \
+          STICKERBOT01 STICKERS_ACCESS_TOKEN
+        mas_register_and_token "${STICKERS_USER_LOCALPART:-stickers}" "$STICKERS_PASSWORD" \
+          STICKERIMPORT01 STICKERS_IMPORT_ACCESS_TOKEN
+      else
+        docker compose exec -T synapse register_new_matrix_user \
+          -u "${STICKERS_USER_LOCALPART:-stickers}" -p "$STICKERS_PASSWORD" --no-admin \
+          -k "$SYNAPSE_REGISTRATION_SHARED_SECRET" http://localhost:8008 2>/dev/null || true
+      fi
       log "Building sticker-importer image..."
       docker compose --profile stickers build matrix-sticker-importer
 
       # ── Set sticker picker widget for MATRIX_USER (idempotent) ──────────────
       log "Configuring sticker picker widget for @${MATRIX_USER}:${MATRIX_DOMAIN}..."
-      _stk_admin_token=$(curl -sf -X POST "http://localhost:8080/_matrix/client/v3/login" \
-        -H "Content-Type: application/json" \
-        -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"${SYNAPSE_ADMIN_USER}\"},\"password\":\"${SYNAPSE_ADMIN_PASSWORD}\"}" \
-        | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true
+      if [[ "${MAS_ENABLED:-false}" == "true" ]]; then
+        _stk_admin_token=$(docker compose exec -T mas mas-cli manage issue-compatibility-token \
+          -c /config.yaml "$SYNAPSE_ADMIN_USER" SETUPWIDGETPROVISION --yes-i-want-to-grant-synapse-admin-privileges 2>&1 \
+          | grep -oP 'Compatibility token issued: \K\S+') || true
+      else
+        _stk_admin_token=$(curl -sf -X POST "http://localhost:8080/_matrix/client/v3/login" \
+          -H "Content-Type: application/json" \
+          -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"${SYNAPSE_ADMIN_USER}\"},\"password\":\"${SYNAPSE_ADMIN_PASSWORD}\"}" \
+          | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null) || true
+      fi
 
       if [[ -n "$_stk_admin_token" ]]; then
         _stk_user_token=$(curl -sf -X POST \

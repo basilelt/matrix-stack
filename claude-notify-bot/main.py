@@ -12,7 +12,7 @@ from pathlib import Path
 from aiohttp import web, ClientSession
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from nio import AsyncClient, AsyncClientConfig, LoginResponse, RoomCreateResponse, RoomPreset
+from nio import AsyncClient, AsyncClientConfig, RoomCreateResponse, RoomPreset
 
 LOG = logging.getLogger("claude-notify-bot")
 
@@ -105,9 +105,11 @@ class NotifyBot:
         )
 
     async def _login(self):
-        resp = await self.client.login(self.cfg["password"], device_name="claude-notify-bot")
-        if not isinstance(resp, LoginResponse):
-            raise RuntimeError(f"Login failed: {resp}")
+        self.client.restore_login(
+            user_id=self.cfg["user_id"],
+            device_id=self.cfg["device_id"],
+            access_token=self.cfg["access_token"],
+        )
         self.client.load_store()
         LOG.info("Logged in as %s device=%s", self.cfg["user_id"], self.client.device_id)
 
@@ -217,13 +219,16 @@ class NotifyBot:
 
                     async with http.post(upload_url, json=payload, headers=hdrs) as r:
                         if r.status == 401:
+                            # Dormant since password login was retired: this UIA re-auth stage
+                            # only fires the first time cross-signing keys are uploaded, which
+                            # already happened historically (guarded by the msk_pub check above).
                             uiaa = await r.json()
                             auth_payload = {
                                 **payload,
                                 "auth": {
                                     "type": "m.login.password",
                                     "identifier": {"type": "m.id.user", "user": user_id},
-                                    "password": self.cfg["password"],
+                                    "password": self.cfg.get("password"),
                                     "session": uiaa.get("session", ""),
                                 },
                             }

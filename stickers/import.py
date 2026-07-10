@@ -23,7 +23,6 @@ import httpx
 from PIL import Image
 
 CONFIG_PATH = Path("/app/config.json")
-DATA_DIR = Path("/app/data")
 PACKS_DIR = Path("/app/packs")
 
 STICKER_EXTS = {".webp", ".png", ".jpg", ".jpeg", ".gif"}
@@ -37,27 +36,7 @@ def load_config() -> dict:
 
 
 def get_access_token(cfg: dict) -> str:
-    token_file = DATA_DIR / "access_token.txt"
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if token_file.exists():
-        token = token_file.read_text().strip()
-        if token:
-            return token
-    hs = cfg["homeserver_url"].rstrip("/")
-    resp = httpx.post(
-        f"{hs}/_matrix/client/v3/login",
-        json={
-            "type": "m.login.password",
-            "identifier": {"type": "m.id.user", "user": cfg["stickers_user"]},
-            "password": cfg["stickers_password"],
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    token = resp.json()["access_token"]
-    token_file.write_text(token)
-    print(f"  Logged in as @{cfg['stickers_user']}")
-    return token
+    return cfg["stickers_import_access_token"]
 
 
 def upload_image(hs: str, token: str, data: bytes, mimetype: str, filename: str) -> str:

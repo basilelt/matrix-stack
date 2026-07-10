@@ -14,7 +14,7 @@ import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from nio import (
-    AsyncClient, AsyncClientConfig, LoginResponse,
+    AsyncClient, AsyncClientConfig,
     RoomMessageFile, RoomEncryptedFile, MegolmEvent, DownloadError,
     OlmUnverifiedDeviceError,
 )
@@ -67,7 +67,7 @@ class StickerBot:
         self.seen = _load_seen()
         STORE_DIR.mkdir(parents=True, exist_ok=True)
 
-        domain = self.hs.split("//")[-1]
+        domain = cfg["matrix_domain"]
         self.client = AsyncClient(
             self.hs,
             f"@{cfg['stickers_user']}:{domain}",
@@ -82,9 +82,11 @@ class StickerBot:
         )
 
     async def _login(self) -> None:
-        resp = await self.client.login(self.cfg["stickers_password"], device_name="sticker-bot")
-        if not isinstance(resp, LoginResponse):
-            raise RuntimeError(f"Login failed: {resp}")
+        self.client.restore_login(
+            user_id=self.client.user,
+            device_id=DEVICE_ID,
+            access_token=self.cfg["stickers_access_token"],
+        )
         self.client.load_store()
         if self.client.should_upload_keys:
             await self.client.keys_upload()
@@ -234,11 +236,14 @@ class StickerBot:
 
                     r = await http.post(upload_url, json=payload, headers=hdrs)
                     if r.status_code == 401:
+                        # Dormant since password login was retired: this UIA re-auth stage only
+                        # fires the first time cross-signing keys are uploaded, which already
+                        # happened historically (guarded by the msk_pub check above).
                         uiaa = r.json()
                         auth_payload = {**payload, "auth": {
                             "type": "m.login.password",
                             "identifier": {"type": "m.id.user", "user": self.cfg["stickers_user"]},
-                            "password": self.cfg["stickers_password"],
+                            "password": self.cfg.get("stickers_password"),
                             "session": uiaa.get("session", ""),
                         }}
                         r = await http.post(upload_url, json=auth_payload, headers=hdrs)

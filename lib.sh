@@ -38,3 +38,13 @@ load_env() {
 random_secret() {
     openssl rand -hex 32
 }
+
+set_env_var_if_missing() {
+    local name="$1" value="$2"
+    local env_file="${SCRIPT_DIR:-.}/.env"
+    if grep -q "^${name}=" "$env_file" 2>/dev/null; then
+        return 0
+    fi
+    printf '%s=%s\n' "$name" "$value" >> "$env_file"
+    export "${name}=${value}"
+}

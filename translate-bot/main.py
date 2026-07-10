@@ -33,7 +33,6 @@ from nio import (
     DownloadError,
     Event,
     InviteMemberEvent,
-    LoginResponse,
     MatrixRoom,
     MegolmEvent,
     ReactionEvent,
@@ -279,13 +278,11 @@ class TranslateBot:
         return plain_url, None
 
     async def start(self):
-        resp = await self.client.login(
-            password=self.cfg["password"],
-            device_name="translate-bot",
+        self.client.restore_login(
+            user_id=self.cfg["user_id"],
+            device_id=self.cfg.get("device_id", "TRANSLATEBOT01"),
+            access_token=self.cfg["access_token"],
         )
-        if not isinstance(resp, LoginResponse):
-            log.error(f"Login failed: {resp}")
-            return
         log.info(f"Logged in as {self.cfg['user_id']}")
 
         # Fetch the languages actually loaded in LibreTranslate so we can give
@@ -322,7 +319,7 @@ class TranslateBot:
         self.client.add_event_callback(self._on_reaction, ReactionEvent)
 
         log.info("Sync loop started.")
-        if self.cfg.get("admin_user") and self.cfg.get("bridge_bots"):
+        if self.cfg.get("admin_token") and self.cfg.get("bridge_bots"):
             asyncio.create_task(self._room_scan_loop())
         await self.client.sync_forever(timeout=30_000, full_state=True)
 
@@ -371,11 +368,14 @@ class TranslateBot:
 
                     r = await http.post(upload_url, json=payload, headers=hdrs)
                     if r.status_code == 401:
+                        # Dormant since password login was retired: this UIA re-auth stage only
+                        # fires the first time cross-signing keys are uploaded, which already
+                        # happened historically for this bot (guarded by the msk_pub check above).
                         uiaa = r.json()
                         auth_payload = {**payload, "auth": {
                             "type": "m.login.password",
                             "identifier": {"type": "m.id.user", "user": user_id},
-                            "password": self.cfg["password"],
+                            "password": self.cfg.get("password"),
                             "session": uiaa.get("session", ""),
                         }}
                         r = await http.post(upload_url, json=auth_payload, headers=hdrs)
@@ -448,16 +448,7 @@ class TranslateBot:
             await asyncio.sleep(interval)
 
     def _scan_and_invite(self, bridge_bots: set, bot_id: str):
-        # Get admin token
-        resp = self._admin_api("POST", "/_matrix/client/v3/login", {
-            "type": "m.login.password",
-            "identifier": {"type": "m.id.user", "user": self.cfg["admin_user"]},
-            "password": self.cfg["admin_password"],
-        })
-        admin_token = resp.get("access_token")
-        if not admin_token:
-            log.warning(f"Room scan: admin login failed: {resp.get('error')}")
-            return
+        admin_token = self.cfg["admin_token"]
 
 
 

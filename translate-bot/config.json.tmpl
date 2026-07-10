@@ -1,14 +1,13 @@
 {
     "homeserver": "http://caddy:8080",
     "user_id": "@${TRANSLATE_BOT_USER_LOCALPART}:${MATRIX_DOMAIN}",
-    "password": "${TRANSLATE_BOT_PASSWORD}",
+    "access_token": "${TRANSLATE_BOT_ACCESS_TOKEN}",
     "device_id": "TRANSLATEBOT01",
     "libretranslate_url": "http://libretranslate:5000",
     "whisper_model": "${WHISPER_MODEL}",
     "store_path": "/app/store",
     "models_dir": "/app/models",
-    "admin_user": "@${SYNAPSE_ADMIN_USER}:${MATRIX_DOMAIN}",
-    "admin_password": "${SYNAPSE_ADMIN_PASSWORD}",
+    "admin_token": "${TRANSLATE_BOT_ADMIN_TOKEN}",
     "invite_as_user": "@${MATRIX_USER}:${MATRIX_DOMAIN}",
     "bridge_bots": [
         "@whatsappbot:${MATRIX_DOMAIN}",
