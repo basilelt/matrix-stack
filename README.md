@@ -58,6 +58,17 @@ provider. `render-configs.sh` then:
   discovery flow. Without it in the regex, the request fell through to Synapse directly, which no
   longer implements it under MAS delegation (`M_UNRECOGNIZED`) — confirmed MAS itself handles the
   path correctly when hit directly, so this was purely a routing gap, not a MAS/Synapse bug.
+  **The `mas.bb-bbb.com` site block itself was on the wrong listener (found + fixed same day):** it
+  had no port, so with `auto_https off` it defaulted to a listener nothing actually connects to —
+  HAProxy/cloudflared both forward to `{CADDY_PORT}` (8080), matching the main site's explicit
+  binding, so every `mas.bb-bbb.com` request landed on the main site's catch-all (proxying to
+  Synapse) instead. The address must be `http://mas.bb-bbb.com:{CADDY_PORT}` — explicit port so it
+  joins the *same* Caddy server as the main site, **and** explicit `http://` scheme so Caddy doesn't
+  infer a TLS connection policy for that server just because a real hostname is now part of it (a
+  bare `:{CADDY_PORT}` address never triggers this; give it a hostname without a scheme and it does,
+  even with `auto_https off` globally — confirmed by inspecting Caddy's own admin API config, which
+  showed a `tls_connection_policies` entry appear on the merged server that broke both `mas.` and
+  `matrix.` — a regression from the first fix attempt, caught before it reached a real request).
 - Adds `mas` to `.compose-profiles` (the `mas` service in `docker-compose.yml` is behind a compose
   profile, dormant unless included).
 
