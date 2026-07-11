@@ -72,7 +72,7 @@ if mas_enabled:
         + '/account"}'
     )
     mas_auth_routes = """\
-@masauth path_regexp ^/_matrix/client/(v3|r0|unstable)/(login|logout|refresh)$
+@masauth path_regexp ^/_matrix/client/(v3|r0|unstable)/(login|logout|refresh|login/sso/redirect|login/sso/redirect/[^/]+)$
     handle @masauth {
         reverse_proxy mas:8080 {
             header_up X-Forwarded-For {remote_host}
