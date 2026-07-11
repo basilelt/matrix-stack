@@ -82,7 +82,7 @@ if mas_enabled:
     """
     mas_vhost = f"""
 
-{mas_public_url.replace('https://', '').replace('http://', '')} {{
+http://{mas_public_url.replace('https://', '').replace('http://', '')}:{caddy_port} {{
     reverse_proxy mas:8080 {{
         header_up X-Forwarded-For {{remote_host}}
         header_up X-Forwarded-Proto https
