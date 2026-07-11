@@ -56,7 +56,7 @@ upstream_oauth2:
         localpart:
           action: require
           template: "{{ user.preferred_username }}"
-          on_conflict: add
+          on_conflict: fail
         displayname:
           action: suggest
           template: "{{ user.name }}"
@@ -65,7 +65,7 @@ upstream_oauth2:
           template: "{{ user.email }}"
 
 passwords:
-  enabled: true
+  enabled: false
   schemes:
     - version: 1
       algorithm: bcrypt
