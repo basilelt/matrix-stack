@@ -109,12 +109,19 @@ startup (to discover login flows) regardless of `encryption.default`, and crash-
 alone is not enough — the crash happens during e2ee client init, before default is even consulted).
 All other bridges have `msc4190: true` and are unaffected.
 
-**Post-cutover cleanup (not done automatically):** while `passwords.enabled: true` and
-`claims_imports.localpart.on_conflict: add` stay set, existing users can log in with either
-password or Authentik SSO, and Authentik logins link to (not replace) the migrated account. Once
-every human has logged in via Authentik at least once, consider flipping `on_conflict` to `fail`
-(prevents new SSO logins from silently creating duplicate accounts on a localpart mismatch) —
-bots must move to token-based auth before disabling passwords entirely.
+**Post-cutover cleanup — DONE (2026-07-11).** `passwords.enabled: false` and
+`claims_imports.localpart.on_conflict: fail` are both set (`mas/config.yaml` + `.tmpl`). Password
+login is fully off — SSO via Authentik is the only way in. Gated on confirming basile's own SSO
+login landed on the existing `@basile` account first (checked via three independent signals: MAS
+user record predates the link by ~7 weeks, matching Synapse account age, 783 real joined rooms — not
+a fresh duplicate), and on all 3 bots already being on compat tokens (unaffected by passwords being
+disabled — verified alive after the MAS restart this required). `m.login.password` now correctly
+rejected (`M_UNKNOWN: Invalid login type`). **Break-glass**: this is trivially reversible — edit
+`passwords.enabled` back to `true` in the live `mas/config.yaml` and restart the `mas` container; no
+data migration happened, so there's nothing to restore from a backup for. If Authentik/MAS itself is
+down, though, there is genuinely no local-login fallback anymore (by design, same posture as every
+other app in this project once its SSO login was confirmed) — fixing Authentik is the only path back
+in until someone with server access reverts this config.
 
 ## Operational cheatsheet
 
