@@ -44,14 +44,20 @@ provider. `render-configs.sh` then:
   regenerated on every render, or every session/token breaks. Generate once:
   `docker run --rm ghcr.io/element-hq/matrix-authentication-service:1.20.0 config generate`,
   paste the `secrets:` block into `mas/config.yaml`, then let the template fill in the rest).
-- Routes `/_matrix/client/(v3|r0|unstable)/(login|logout|refresh)` to MAS in the Caddyfile
-  (must come *before* the generic `/_matrix/*` → synapse handler), adds the
+- Routes `/_matrix/client/(v3|r0|unstable)/(login|logout|refresh|login/sso/redirect|login/sso/redirect/[^/]+)`
+  to MAS in the Caddyfile (must come *before* the generic `/_matrix/*` → synapse handler), adds the
   `org.matrix.msc2965.authentication` block to the static `/.well-known/matrix/client` responder,
   and adds a second Caddy site block for `MAS_PUBLIC_URL` (public-only, no LAN/HAProxy route needed
   — cloudflared ingress + DNS route only). **When a second site is added, the `:{CADDY_PORT}` site
   needs explicit `{ }` braces** — Caddy can't otherwise tell where one site's directives end and
   the next site's hostname begins; without it, reload fails with
   `unrecognized directive: mas.bb-bbb.com`.
+  **`login/sso/redirect` was missing from this list at first (found 2026-07-10)** — Synapse still
+  advertises `m.login.sso` (with `delegated_oidc_compatibility: true`) for older clients, and Element
+  uses this legacy endpoint for its "Continue with SSO" button rather than the modern MSC2965
+  discovery flow. Without it in the regex, the request fell through to Synapse directly, which no
+  longer implements it under MAS delegation (`M_UNRECOGNIZED`) — confirmed MAS itself handles the
+  path correctly when hit directly, so this was purely a routing gap, not a MAS/Synapse bug.
 - Adds `mas` to `.compose-profiles` (the `mas` service in `docker-compose.yml` is behind a compose
   profile, dormant unless included).
 
