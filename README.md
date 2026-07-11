@@ -91,6 +91,16 @@ provisioning (`_stk_admin_token`, `_admin_token`, `_stk_token` — the three `/l
 lines 370/411/447) uses `http://localhost:8080` (Caddy's published port), not `:8008`, for the same
 reason. This applies to ANY future component that logs in with a password.
 
+**Gotcha — `translate-bot`/`claude-notify-bot`/`stickers`' `config.json` has NO skip-if-exists guard
+in `render-configs.sh`, unlike the bridge configs.** It's unconditionally re-rendered from
+`config.json.tmpl` + `.env` on every run. If you ever hand-patch the *live* `config.json` for one of
+these (e.g. to migrate to token-based auth) without ALSO pushing the matching updated `.tmpl` to the
+live host, the next `render-configs.sh` run — even one triggered for a completely unrelated fix —
+will silently regenerate it from the stale template and revert your change. This crash-looped all 3
+bots once already (2026-07-10, `KeyError: 'access_token'` after the template stayed on the old
+`password` schema while two later Caddy-only re-renders ran). Always push the `.tmpl` in the same
+step as any live `config.json` hand-edit for these three.
+
 **Gotcha — googlechat cannot use encryption under MAS.** googlechat (Python bridge) has no MSC4190
 support — its e2ee client calls `GET /_matrix/client/v3/login` directly on `synapse:8008` at
 startup (to discover login flows) regardless of `encryption.default`, and crash-loops when that
