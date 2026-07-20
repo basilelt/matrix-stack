@@ -119,7 +119,17 @@ class NotifyBot:
 
         if self._room_id_file.exists():
             self.room_id = self._room_id_file.read_text().strip()
-            LOG.info("Restored DM room: %s", self.room_id)
+            # nio keeps client.rooms in memory only; it is never restored from the
+            # store. If this startup sync didn't happen to return the (quiet) DM
+            # room, room_send later raises "No such room" for the whole process
+            # life. A tokenless initial sync is spec-guaranteed to return every
+            # joined room, so force one before sync_forever takes over the token.
+            if self.room_id not in self.client.rooms:
+                LOG.warning("DM room %s absent after sync — forcing full initial sync", self.room_id)
+                self.client.next_batch = None
+                self.client.loaded_sync_token = None
+                await self.client.sync(timeout=15_000, full_state=True)
+            LOG.info("Restored DM room: %s (known=%s)", self.room_id, self.room_id in self.client.rooms)
             return
 
         owner = self.cfg["owner_user"]
