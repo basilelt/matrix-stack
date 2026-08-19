@@ -19,6 +19,9 @@ bridge:
     "${BRIDGE_ADMIN_USER}": admin
     "@translate-bot:${MATRIX_DOMAIN}": admin
 
+backfill:
+  enabled: true
+
 database:
   type: postgres
   uri: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}_metafb?sslmode=disable"
