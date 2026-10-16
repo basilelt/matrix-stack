@@ -3,6 +3,7 @@
 
 import asyncio
 import base64
+import html
 import json
 import logging
 import os
@@ -46,6 +47,10 @@ def _render(data: dict) -> tuple[str, str]:
     branch  = data.get("branch", "")
     elapsed = int(data.get("elapsed_seconds", 0))
     msg     = data.get("message", "")
+
+    if event == "alert":
+        title = html.escape(data.get("title") or host)
+        return f"🔔 {data.get('title') or host}\n{msg}", f"🔔 <b>{title}</b><br>{html.escape(msg)}"
 
     if event == "stop":
         tp = "✅ Claude done" + (f": {session}" if session else "")
