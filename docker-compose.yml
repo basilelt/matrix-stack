@@ -99,11 +99,8 @@ services:
     restart: unless-stopped
 
   mautrix-whatsapp:
-    build:
-      context: ./bridges/whatsapp
-      dockerfile: Dockerfile.patched
-    image: mautrix-whatsapp:patched
-    <<: *wud-off
+    image: dock.mau.dev/mautrix/whatsapp:v0.2610.0
+    <<: *wud-calver
     profiles:
       - whatsapp
     depends_on:
@@ -122,7 +119,7 @@ services:
     restart: unless-stopped
 
   mautrix-telegram:
-    image: dock.mau.dev/mautrix/telegram:v0.2608.0
+    image: dock.mau.dev/mautrix/telegram:v0.2610.0
     <<: *wud-calver
     profiles:
       - telegram
@@ -142,7 +139,7 @@ services:
     restart: unless-stopped
 
   mautrix-signal:
-    image: dock.mau.dev/mautrix/signal:v0.2608.0
+    image: dock.mau.dev/mautrix/signal:v0.2610.0
     <<: *wud-calver
     profiles:
       - signal
@@ -182,7 +179,7 @@ services:
     restart: unless-stopped
 
   mautrix-slack:
-    image: dock.mau.dev/mautrix/slack:v0.2608.0
+    image: dock.mau.dev/mautrix/slack:v0.2610.0
     <<: *wud-calver
     profiles:
       - slack
@@ -202,7 +199,7 @@ services:
     restart: unless-stopped
 
   mautrix-gmessages:
-    image: dock.mau.dev/mautrix/gmessages:v0.2608.0
+    image: dock.mau.dev/mautrix/gmessages:v0.2610.0
     <<: *wud-calver
     profiles:
       - gmessages
@@ -222,7 +219,7 @@ services:
     restart: unless-stopped
 
   mautrix-twitter:
-    image: dock.mau.dev/mautrix/twitter:v0.2608.0
+    image: dock.mau.dev/mautrix/twitter:v0.2609.0
     <<: *wud-calver
     profiles:
       - twitter
@@ -262,7 +259,7 @@ services:
     restart: unless-stopped
 
   mautrix-linkedin:
-    image: dock.mau.dev/mautrix/linkedin:v0.2608.0
+    image: dock.mau.dev/mautrix/linkedin:v0.2609.0
     <<: *wud-calver
     profiles:
       - linkedin
@@ -282,7 +279,7 @@ services:
     restart: unless-stopped
 
   mautrix-meta-fb:
-    image: dock.mau.dev/mautrix/meta:v0.2608.0
+    image: dock.mau.dev/mautrix/meta:v0.2610.0
     <<: *wud-calver
     profiles:
       - meta-fb
@@ -302,7 +299,7 @@ services:
     restart: unless-stopped
 
   mautrix-meta-ig:
-    image: dock.mau.dev/mautrix/meta:ig-v0.2608.0
+    image: dock.mau.dev/mautrix/meta:ig-v0.2610.0
     labels:
       wud.watch: "true"
       wud.tag.include: '^ig-v0\.\d{4}\.\d+$$'
