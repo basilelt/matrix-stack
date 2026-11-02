@@ -14,6 +14,18 @@ x-wud-semver: &wud-semver
     wud.tag.include: '^v\d+\.\d+\.\d+$$'
     wud.compose.file: /wud/docker-compose.yml
 
+x-wud-synapse: &wud-synapse
+  labels:
+    wud.watch: "true"
+    wud.tag.include: '^v1\.\d+\.\d+$$'
+    wud.compose.file: /wud/docker-compose.yml
+
+x-wud-mas: &wud-mas
+  labels:
+    wud.watch: "true"
+    wud.tag.include: '^1\.\d+\.\d+$$'
+    wud.compose.file: /wud/docker-compose.yml
+
 x-wud-off: &wud-off
   labels:
     wud.watch: "false"
@@ -40,8 +52,8 @@ services:
     restart: unless-stopped
 
   synapse:
-    image: matrixdotorg/synapse:v1.155.0
-    <<: *wud-off
+    image: matrixdotorg/synapse:v1.164.1
+    <<: *wud-synapse
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,8 +74,8 @@ services:
     restart: unless-stopped
 
   mas:
-    image: ghcr.io/element-hq/matrix-authentication-service:1.20.0
-    <<: *wud-off
+    image: ghcr.io/element-hq/matrix-authentication-service:1.28.0
+    <<: *wud-mas
     profiles:
       - mas
     depends_on:
