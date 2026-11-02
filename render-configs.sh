@@ -22,7 +22,7 @@ mkdir -p \
   "${SCRIPT_DIR}/caddy/data" \
   "${SCRIPT_DIR}/synapse/appservices" \
   "${SCRIPT_DIR}/synapse/media_store" \
-"${SCRIPT_DIR}/postgres/data" \
+  "${SCRIPT_DIR}/postgres/pg18" \
   "${SCRIPT_DIR}/stickers/web/packs" \
   "${SCRIPT_DIR}/stickers/data" \
   "${SCRIPT_DIR}/stickers/input" \

@@ -134,7 +134,7 @@ in until someone with server access reverts this config.
 | Force container updates | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose restart wud"` |
 | Force OS updates | `ssh root@YOUR_LXC_IP "systemctl start auto-update.service"` |
 | Add SSH pubkey | `ssh root@YOUR_LXC_IP "echo 'ssh-ed25519 AAAA...' >> /root/.ssh/authorized_keys"` |
-| Backup | `ssh root@YOUR_LXC_IP 'cd /opt/matrix-stack && docker compose exec -T postgres pg_dumpall -U synapse \| gzip > ~/matrix-pg-$(date +%F).sql.gz && tar czf ~/matrix-files-$(date +%F).tgz .env synapse bridges'` (logical dump — crash-consistent; never tar a live `postgres/data`) |
+| Backup | `ssh root@YOUR_LXC_IP 'cd /opt/matrix-stack && docker compose exec -T postgres pg_dumpall -U synapse \| gzip > ~/matrix-pg-$(date +%F).sql.gz && tar czf ~/matrix-files-$(date +%F).tgz .env synapse bridges'` (logical dump — crash-consistent; never tar a live `postgres/pg18`) |
 | Stop stack | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && docker compose down"` |
 | Register a new user | `ssh root@YOUR_LXC_IP "cd /opt/matrix-stack && ./setup.sh register-user"` |
 
