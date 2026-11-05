@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
 
   synapse:
-    image: matrixdotorg/synapse:v1.164.1
+    image: matrixdotorg/synapse:v1.164.2
     <<: *wud-synapse
     depends_on:
       postgres:
@@ -110,7 +110,7 @@ services:
     restart: unless-stopped
 
   caddy:
-    image: caddy:2.11.7-alpine
+    image: caddy:2.11.8-alpine
     <<: *wud-caddy
     depends_on:
       synapse:
@@ -169,7 +169,7 @@ services:
     restart: unless-stopped
 
   mautrix-signal:
-    image: dock.mau.dev/mautrix/signal:v0.2610.0
+    image: dock.mau.dev/mautrix/signal:a630835d70e59d28b29ee6316da589a27a155ba5-amd64
     <<: *wud-calver
     profiles:
       - signal
