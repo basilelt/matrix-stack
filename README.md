@@ -393,7 +393,7 @@ token). Bridging itself is unaffected — only the "sent as you" cosmetic ghost 
 
 **Cause:** Signal's server started requiring `uploadLength` when requesting an attachment upload form. Fixed upstream in mautrix/signal#703 (2026-11-04), not yet in a calver release.
 
-**Fix:** bridge pinned to main-branch build `a630835d...-amd64`. WUD cannot compare a commit-sha tag, so it will not auto-update this one. TODO: switch back to the next `v0.26xx` release (>= v0.2611) once it ships.
+**Fix:** bridge pinned to main-branch build `a630835d...-amd64`. WUD cannot compare a commit-sha tag, so it will not auto-update this one. `signal-release-watch.timer` (installed by `install-signal-release-watch.sh`) checks every 6h for `v0.2611.0`/`v0.2612.0`, swaps the live compose tag, recreates the bridge and disables itself. After it fires, reconcile the live tag into this repo.
 
 ### Signal bridge: group messages fail — "missing sender key state" (error 80)
 
