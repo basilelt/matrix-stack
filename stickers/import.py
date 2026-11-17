@@ -166,6 +166,9 @@ def import_pack(cfg: dict, token: str, path: Path, display_name: str = "") -> No
         print(f"  Skipping {path}: not a .wastickers file or directory")
         return
 
+    if pack_id == "index":
+        pack_id = "index-pack"
+
     if not raw:
         print(f"  No sticker images found in {path}")
         return
